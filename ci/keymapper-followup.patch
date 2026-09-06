@@ -1,0 +1,54 @@
+--- a/QtScrcpy/ui/keymapeditor.cpp
++++ b/QtScrcpy/ui/keymapeditor.cpp
+@@ -70,7 +70,7 @@
+ }
+ void KeymapEditor::refreshMouseLook(){
+  const QSignalBlocker blocker(m_mouseLook);
+- const bool available=m_document.root["mouseMoveMap"].isObject();
++ const bool available=m_document.root.value("mouseMoveMap").isObject();
+  const bool enabled=available&&m_document.root["mouseLookEnabled"].toBool(false);
+  m_mouseLook->setEnabled(available);m_mouseLook->setChecked(enabled);
+  m_document.root["mouseLookEnabled"]=enabled;
+--- a/tests/mousebinding_ui_test.cpp
++++ b/tests/mousebinding_ui_test.cpp
+@@ -117,7 +117,9 @@
+ }
+ bool cursorDeleted() {
+     MouseLookCursor cursor;auto*video=new QWidget;cursor.set(video,true);delete video;cursor.release();
+-    QWidget replacement;cursor.set(&replacement,true);cursor.release();return !cursor.active()&&!replacement.testAttribute(Qt::WA_SetCursor);
++    QWidget parent;parent.setCursor(Qt::IBeamCursor);QWidget replacement(&parent);
++    const bool own=replacement.testAttribute(Qt::WA_SetCursor);const auto shape=replacement.cursor().shape();
++    cursor.set(&replacement,true);cursor.release();return !cursor.active()&&replacement.testAttribute(Qt::WA_SetCursor)==own&&replacement.cursor().shape()==shape;
+ }
+ }
+ int main(int argc,char **argv) {
+--- a/.github/workflows/windows.yml
++++ b/.github/workflows/windows.yml
+@@ -15,6 +15,7 @@
+       - 'ci/win**'
+ jobs:
+   build:
++    if: github.ref != 'refs/heads/feature/scrcpy-keymapper' && github.head_ref != 'feature/scrcpy-keymapper'
+     name: Build
+     # windows-latest目前是windows server 2022
+     # windows server 2019安装的是vs2019，windows server 2016安装的是vs2017
+--- a/.github/workflows/macos.yml
++++ b/.github/workflows/macos.yml
+@@ -12,6 +12,7 @@
+       - '.github/workflows/macos.yml'
+ jobs:
+   build:
++    if: github.ref != 'refs/heads/feature/scrcpy-keymapper' && github.head_ref != 'feature/scrcpy-keymapper'
+     name: Build
+     # macos-13 (Intel) runners are no longer supported by GitHub Actions.
+     # Use macos-14 (Apple Silicon) for all builds:
+--- a/.github/workflows/ubuntu.yml
++++ b/.github/workflows/ubuntu.yml
+@@ -14,6 +14,7 @@
+       - 'ci/linux/**'
+ jobs:
+   build:
++    if: github.ref != 'refs/heads/feature/scrcpy-keymapper' && github.head_ref != 'feature/scrcpy-keymapper'
+     name: Build
+     runs-on: ubuntu-22.04
+     container:

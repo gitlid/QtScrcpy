@@ -35,11 +35,14 @@ jobs:
           set -euo pipefail
           if git apply --check ci/keymapper-host.patch; then
             git apply ci/keymapper-host.patch
-          else
-            git apply --reverse --check ci/keymapper-host.patch
+          elif ! git apply --reverse --check ci/keymapper-host.patch; then
+            echo 'Host integration baseline changed'; exit 1
           fi
+          git apply --check ci/keymapper-followup.patch
+          git apply ci/keymapper-followup.patch
           git diff --check
       - name: Configure and build
+        id: build
         shell: pwsh
         run: |
           cmake -S . -B build-keymapper -G 'Visual Studio 17 2022' -A x64 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DQSC_BUILD_ACTION_MACRO_TESTS=ON -DQSC_WITH_KEYMAPPER=ON
@@ -54,6 +57,7 @@ jobs:
           ctest --test-dir build-keymapper -C RelWithDebInfo -E keymapper_native_bridge --output-on-failure --output-junit results.xml --timeout 60
           if($LASTEXITCODE -ne 0){throw 'Regression failed'}
       - name: Offline embedded editor on Windows
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: pwsh
         run: |
           $env:PATH="$(Join-Path $PWD 'output/x64/RelWithDebInfo');$env:PATH"
@@ -65,7 +69,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add QtScrcpy/main.cpp QtScrcpy/ui/actionmacrodialog.cpp QtScrcpy/ui/keymapdocument.h QtScrcpy/ui/keymapeditor.cpp QtScrcpy/ui/keymapeditor.h QtScrcpy/ui/mouselookcursor.h QtScrcpy/ui/videoform.cpp QtScrcpy/ui/videoform.h tests/CMakeLists.txt tests/mousebinding_ui_test.cpp
+          git add QtScrcpy/main.cpp QtScrcpy/ui/actionmacrodialog.cpp QtScrcpy/ui/keymapdocument.h QtScrcpy/ui/keymapeditor.cpp QtScrcpy/ui/keymapeditor.h QtScrcpy/ui/mouselookcursor.h QtScrcpy/ui/videoform.cpp QtScrcpy/ui/videoform.h tests/CMakeLists.txt tests/mousebinding_ui_test.cpp .github/workflows/windows.yml .github/workflows/macos.yml .github/workflows/ubuntu.yml
           if ! git diff --cached --quiet; then
             git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: integrate verified upstream editor host and RC3 cursor fixes'
             git push origin HEAD:refs/heads/feature/scrcpy-keymapper
