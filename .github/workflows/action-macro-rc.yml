@@ -1,0 +1,91 @@
+name: Action Macro RC
+
+on:
+  push:
+    branches: [feature/action-recorder]
+    paths:
+      - 'QtScrcpy/**'
+      - 'CMakeLists.txt'
+      - 'ci/action-macro/**'
+      - '.github/workflows/action-macro-rc.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: action-macro-rc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4.1.1
+        with:
+          version: '5.15.2'
+          arch: win64_msvc2019_64
+          cache: true
+      - name: Configure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S . -B build-action-macro -G 'Visual Studio 17 2022' -A x64 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DQSC_BUILD_ACTION_MACRO_TESTS=ON
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build-action-macro --config RelWithDebInfo --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'CMake build failed' }
+      - name: Regression tests
+        shell: pwsh
+        run: |
+          ctest --test-dir build-action-macro -C RelWithDebInfo --output-on-failure --timeout 60
+          if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
+      - name: Package and smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = Join-Path $PWD 'dist/QtScrcpy-action-macro-win64'
+          New-Item $package -ItemType Directory -Force | Out-Null
+          Copy-Item 'output/x64/RelWithDebInfo/*' $package -Recurse
+          Copy-Item 'config','keymap' $package -Recurse
+          Copy-Item 'LICENSE' (Join-Path $package 'LICENSE-QtScrcpy')
+          Copy-Item 'QtScrcpy/QtScrcpyCore/LICENSE' (Join-Path $package 'LICENSE-QtScrcpyCore')
+          Copy-Item 'docs/action-recorder.zh-CN.md' $package
+          Get-ChildItem $package -Include '*.lib','*.pdb','*.exp' -Recurse | Remove-Item
+          windeployqt --release --no-translations (Join-Path $package 'QtScrcpy.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Qt deployment failed' }
+          foreach ($dll in @('msvcp140.dll','msvcp140_1.dll','vcruntime140.dll','vcruntime140_1.dll')) {
+            Copy-Item (Join-Path $env:WINDIR "System32/$dll") $package
+          }
+          $mainSha = git rev-parse HEAD
+          $coreSha = git -C QtScrcpy/QtScrcpyCore rev-parse HEAD
+          @{mainCommit=$mainSha; coreCommit=$coreSha; runId=$env:GITHUB_RUN_ID; deviceTested=$false} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
+          $process = Start-Process -FilePath (Join-Path $package 'QtScrcpy.exe') -WorkingDirectory $package -PassThru
+          Start-Sleep -Seconds 5
+          if ($process.HasExited) { throw "Startup smoke test failed: exit $($process.ExitCode)" }
+          Stop-Process -Id $process.Id
+          $archive = Join-Path $PWD 'dist/QtScrcpy-action-macro-win64.zip'
+          Compress-Archive $package $archive
+          (Get-FileHash $archive -Algorithm SHA256).Hash | Set-Content "$archive.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QtScrcpy-action-macro-win64-${{ github.sha }}
+          path: |
+            dist/QtScrcpy-action-macro-win64.zip
+            dist/QtScrcpy-action-macro-win64.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: action-macro-test-logs-${{ github.sha }}
+          path: build-action-macro/Testing/Temporary/*.log
+          if-no-files-found: ignore
