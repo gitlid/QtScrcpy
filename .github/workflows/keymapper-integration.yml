@@ -5,10 +5,10 @@ on:
     paths: ['QtScrcpy/**', 'tests/**', 'ci/**', 'CMakeLists.txt', '.gitmodules', '.github/workflows/keymapper-integration.yml']
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: keymapper-integration-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   windows:
     if: github.repository == 'gitlid/QtScrcpy' && github.ref == 'refs/heads/feature/scrcpy-keymapper'
@@ -23,25 +23,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          persist-credentials: false
       - uses: jurplel/install-qt-action@v4.1.1
         with:
           version: '5.15.2'
           arch: win64_msvc2019_64
           modules: qtwebengine
           cache: true
-      - name: Apply the reviewed host integration once
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git apply --check ci/keymapper-host.patch; then
-            git apply ci/keymapper-host.patch
-          elif ! git apply --reverse --check ci/keymapper-host.patch; then
-            echo 'Host integration baseline changed'; exit 1
-          fi
-          git apply --check ci/keymapper-followup.patch
-          git apply ci/keymapper-followup.patch
-          git diff --check
-      - name: Configure and build
+      - name: Configure and build committed sources
         id: build
         shell: pwsh
         run: |
@@ -49,6 +38,9 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Configure failed'}
           cmake --build build-keymapper --config RelWithDebInfo --parallel 4
           if($LASTEXITCODE -ne 0){throw 'Build failed'}
+          git diff --exit-code
+          if($LASTEXITCODE -ne 0){throw 'Build changed tracked sources'}
+          git rev-parse HEAD | Set-Content tested-commit.txt
       - name: Native controller, macro and legacy UI regression
         shell: pwsh
         run: |
@@ -65,17 +57,7 @@ jobs:
           $env:QSC_KEYMAPPER_SCREENSHOT=Join-Path $PWD 'build-keymapper/keymapper-native.png'
           ctest --test-dir build-keymapper -C RelWithDebInfo -R keymapper_native_bridge --output-on-failure --output-junit web-results.xml --timeout 45
           if($LASTEXITCODE -ne 0){throw 'Embedded editor test failed'}
-      - name: Commit only the tested host integration on the feature branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add QtScrcpy/main.cpp QtScrcpy/ui/actionmacrodialog.cpp QtScrcpy/ui/keymapdocument.h QtScrcpy/ui/keymapeditor.cpp QtScrcpy/ui/keymapeditor.h QtScrcpy/ui/mouselookcursor.h QtScrcpy/ui/videoform.cpp QtScrcpy/ui/videoform.h tests/CMakeLists.txt tests/mousebinding_ui_test.cpp .github/workflows/windows.yml .github/workflows/macos.yml .github/workflows/ubuntu.yml
-          if ! git diff --cached --quiet; then
-            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: integrate verified upstream editor host and RC3 cursor fixes'
-            git push origin HEAD:refs/heads/feature/scrcpy-keymapper
-          fi
-          git rev-parse HEAD > tested-commit.txt
-      - name: Package portable Windows candidate
+      - name: Package and verify portable editor independently of installed Qt
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -88,12 +70,16 @@ jobs:
           Copy-Item 'QtScrcpy/QtScrcpyCore/LICENSE' (Join-Path $package 'LICENSE-QtScrcpyCore')
           Copy-Item 'docs/keymapper-integration.zh-CN.md' (Join-Path $package 'README-Keymapper.zh-CN.md')
           Get-ChildItem $package -Include '*.lib','*.pdb','*.exp' -Recurse | Remove-Item
-          windeployqt --release --no-translations (Join-Path $package 'QtScrcpy.exe')
+          windeployqt --release (Join-Path $package 'QtScrcpy.exe')
           if($LASTEXITCODE -ne 0){throw 'Qt deployment failed'}
           foreach($dll in @('msvcp140.dll','msvcp140_1.dll','vcruntime140.dll','vcruntime140_1.dll')){Copy-Item (Join-Path $env:WINDIR "System32/$dll") $package}
           if(!(Test-Path (Join-Path $package 'QtWebEngineProcess.exe'))){throw 'Missing QtWebEngineProcess.exe'}
           if(!(Test-Path (Join-Path $package 'resources/qtwebengine_resources.pak'))){throw 'Missing WebEngine resources'}
           $qtPrefix=(& qmake -query QT_INSTALL_PREFIX).Trim()
+          $localeDir=Join-Path $package 'translations/qtwebengine_locales'
+          New-Item $localeDir -ItemType Directory -Force | Out-Null
+          Copy-Item (Join-Path $qtPrefix 'translations/qtwebengine_locales/en-US.pak') $localeDir
+          [IO.File]::WriteAllText((Join-Path $package 'qt.conf'), "[Paths]`nPrefix=.`nPlugins=.`nLibraryExecutables=.`nData=.`nTranslations=translations`n")
           foreach($entry in @(@{Name='upstream';Root=(Join-Path $PWD 'QtScrcpy/QtScrcpyCore/src/third_party')},@{Name='Qt';Root=$qtPrefix})){
             Get-ChildItem $entry.Root -File -Recurse | Where-Object {$_.Name -match '^(LICENSE|COPYING|NOTICE|COPYRIGHT)(\.|$|-)'} | ForEach-Object {
               $relative=[IO.Path]::GetRelativePath($entry.Root,$_.FullName)
@@ -109,11 +95,31 @@ jobs:
           $mainSha=git rev-parse HEAD
           $coreSha=git -C QtScrcpy/QtScrcpyCore rev-parse HEAD
           $editorSha=git -C QtScrcpy/third_party/ScrcpyKeyMapper rev-parse HEAD
-          @{version='0.3.0-rc.1';mainCommit=$mainSha;coreCommit=$coreSha;editorCommit=$editorSha;runId=$env:GITHUB_RUN_ID;newFeaturesDeviceTested=$false;maximumPlaybackSpeed=8;audioChanged=$false;embeddedOfflineEditor=$true} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
-          $p=Start-Process (Join-Path $package 'QtScrcpy.exe') -WorkingDirectory $package -PassThru
-          Start-Sleep -Seconds 5
-          if($p.HasExited){throw "Startup failed: $($p.ExitCode)"}
-          Stop-Process -Id $p.Id
+          $testExe=Join-Path $package 'keymapper_smoke.exe'
+          Copy-Item 'build-keymapper/QtScrcpy/keymapper/RelWithDebInfo/keymapper_smoke.exe' $testExe
+          $savedPath=$env:PATH
+          $saved=@{}
+          foreach($key in @('QT_PLUGIN_PATH','QML2_IMPORT_PATH','QT_QPA_PLATFORM','QTWEBENGINEPROCESS_PATH','QTWEBENGINE_RESOURCES_PATH','QTWEBENGINE_LOCALES_PATH')){
+            $saved[$key]=[Environment]::GetEnvironmentVariable($key)
+            [Environment]::SetEnvironmentVariable($key,$null)
+          }
+          try {
+            $env:PATH="$package;$env:WINDIR/System32;$env:WINDIR"
+            $env:QSC_KEYMAPPER_SCREENSHOT=Join-Path $PWD 'build-keymapper/portable-editor.png'
+            $p=Start-Process $testExe -WorkingDirectory $package -PassThru -RedirectStandardOutput (Join-Path $PWD 'build-keymapper/portable-editor.stdout.log') -RedirectStandardError (Join-Path $PWD 'build-keymapper/portable-editor.stderr.log')
+            if(!$p.WaitForExit(45000)){Stop-Process -Id $p.Id;throw 'Portable editor timed out'}
+            if($p.ExitCode -ne 0){throw "Portable editor failed: $($p.ExitCode)"}
+            $p=Start-Process (Join-Path $package 'QtScrcpy.exe') -WorkingDirectory $package -PassThru
+            Start-Sleep -Seconds 5
+            if($p.HasExited){throw "Startup failed: $($p.ExitCode)"}
+            Stop-Process -Id $p.Id
+          } finally {
+            $env:PATH=$savedPath
+            foreach($key in $saved.Keys){[Environment]::SetEnvironmentVariable($key,$saved[$key])}
+            Remove-Item $testExe -ErrorAction SilentlyContinue
+          }
+          if(Get-ChildItem $package -Recurse -File | Where-Object {$_.Extension -match '^\.(ttf|otf|woff|woff2|ttc)$'}){throw 'Unexpected standalone font file in package'}
+          @{version='0.3.0-rc.1';mainCommit=$mainSha;coreCommit=$coreSha;editorCommit=$editorSha;runId=$env:GITHUB_RUN_ID;newFeaturesDeviceTested=$false;maximumPlaybackSpeed=8;audioChanged=$false;embeddedOfflineEditor=$true;portableEditorVerified=$true} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
           $zip=Join-Path $PWD "dist/$name.zip"
           Compress-Archive $package $zip
           $hash=(Get-FileHash $zip -Algorithm SHA256).Hash
@@ -134,4 +140,5 @@ jobs:
             build-keymapper/results.xml
             build-keymapper/web-results.xml
             build-keymapper/keymapper-native.png
+            build-keymapper/portable-editor*
             tested-commit.txt
