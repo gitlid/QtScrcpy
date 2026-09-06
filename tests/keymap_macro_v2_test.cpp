@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QDebug>
 #include <QFile>
 #include <QGraphicsEllipseItem>
 #include <QGraphicsScene>
@@ -28,7 +29,9 @@ int main(int argc,char **argv){
   QPixmap frame(400,800);frame.fill(Qt::darkGray);KeymapDocument d;d.add("KMT_CLICK");KeymapEditor e(frame,QString::fromUtf8(QJsonDocument(d.root).toJson()));e.show();QApplication::processEvents();
   auto*view=e.findChild<QGraphicsView*>();if(!view)return false;QGraphicsEllipseItem*marker=nullptr;for(auto*item:view->scene()->items())if(auto*p=dynamic_cast<QGraphicsEllipseItem*>(item)){marker=p;break;}if(!marker)return false;
   marker->setPos(100,200);auto nodes=QJsonDocument::fromJson(e.script().toUtf8()).object()["keyMapNodes"].toArray();auto pos=nodes[0].toObject()["pos"].toObject();bool ok=pos["x"].toDouble()==.25&&pos["y"].toDouble()==.25;
-  marker->setPos(-20,1000);nodes=QJsonDocument::fromJson(e.script().toUtf8()).object()["keyMapNodes"].toArray();pos=nodes[0].toObject()["pos"].toObject();ok=ok&&pos["x"].toDouble()==0&&pos["y"].toDouble()<1;e.done(QDialog::Rejected);return ok;
+  marker->setPos(-20,1000);nodes=QJsonDocument::fromJson(e.script().toUtf8()).object()["keyMapNodes"].toArray();pos=nodes[0].toObject()["pos"].toObject();ok=ok&&pos["x"].toDouble()==0&&pos["y"].toDouble()<1;
+  if(qEnvironmentVariableIsSet("QSC_TEST_SCREENSHOT"))e.grab().save(qEnvironmentVariable("QSC_TEST_SCREENSHOT"));
+  e.done(QDialog::Rejected);return ok;
  });
  test("pause_shortcut",[]{auto*h=ActionMacroHotkey::instance();Q_UNUSED(h);QWidget w;QKeyEvent e(QEvent::KeyPress,Qt::Key_P,Qt::ControlModifier|Qt::ShiftModifier);e.ignore();QApplication::sendEvent(&w,&e);return e.isAccepted();});
  qInfo("Keymap/Macro UI: %d/%d",passed,ran);return ran>0&&ran==passed?0:1;
