@@ -43,10 +43,19 @@ jobs:
           set -euo pipefail
           gh run download "$VERIFIED_RUN" --repo "$GH_REPO" --name "QtScrcpy-action-macro-win64-$VERIFIED_MAIN" --dir artifact
           cd artifact
-          sha256sum --check QtScrcpy-action-macro-0.1.0-rc.1-win64.zip.sha256
           python3 - <<'PY'
-          import json, os, zipfile
-          with zipfile.ZipFile('QtScrcpy-action-macro-0.1.0-rc.1-win64.zip') as archive:
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+          name = 'QtScrcpy-action-macro-0.1.0-rc.1-win64.zip'
+          # Accept Windows CRLF without rewriting the verified build artifact.
+          expected, listed_name = Path(name + '.sha256').read_text(encoding='ascii').strip().split(None, 1)
+          assert listed_name == name
+          actual = hashlib.sha256(Path(name).read_bytes()).hexdigest()
+          assert actual.lower() == expected.lower()
+          assert actual.upper() == 'C6580C9B153B52754528BA71C95067C260B02E8923CA8693390F48F8C1BD674C'
+          print('Verified package SHA-256:', actual)
+          with zipfile.ZipFile(name) as archive:
+              assert archive.testzip() is None
               info_paths = [p for p in archive.namelist() if p.endswith('/build-info.json')]
               assert len(info_paths) == 1
               info = json.loads(archive.read(info_paths[0]).decode('utf-8-sig'))
@@ -87,6 +96,8 @@ jobs:
           核心提交：`b9db44edaf4beb4554a952053a43526ddae4d8d8`
           主 PR：https://github.com/gitlid/QtScrcpy/pull/1
           核心 PR：https://github.com/gitlid/QtScrcpyCore/pull/1
+
+          SHA-256：`C6580C9B153B52754528BA71C95067C260B02E8923CA8693390F48F8C1BD674C`
 
           ## 尚待实测
           实体手机兼容性、游戏映射和实际延迟未验收。释放消息不是手机端执行确认。脚本使用绝对坐标，没有图像识别或页面条件等待；不要在支付、删除等高风险页面试用，不要录制或分享敏感文字/剪贴板内容。
