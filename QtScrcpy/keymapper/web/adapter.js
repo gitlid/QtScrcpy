@@ -2,6 +2,18 @@
 import { App } from './js/app.js';
 import { KeyInputManager } from './js/managers/KeyInputManager.js';
 import { ConfigManager } from './js/managers/ConfigManager.js';
+import { LanguageManager } from './js/managers/LanguageManager.js';
+import en from './js/i18n/en.js';
+import ar from './js/i18n/ar.js';
+import zh from './js/i18n/zh.js';
+// Native bootstrap can arrive before upstream's asynchronous language imports.
+// Load the pinned translations as module dependencies before constructing App.
+LanguageManager.prototype.init=function(){
+    this.translations={en,ar,zh};
+    if(!this.translations[this.currentLanguage])this.currentLanguage='zh';
+    this.setLanguage(this.currentLanguage);
+    this.setupLanguageSelector();
+};
 const clone=v=>JSON.parse(JSON.stringify(v));
 const buttons=['LeftButton','MiddleButton','RightButton','BackButton','ForwardButton'];
 const aliases={XButton1:'BackButton',ExtraButton1:'BackButton',XButton2:'ForwardButton',ExtraButton2:'ForwardButton'};
@@ -99,6 +111,6 @@ if(window.qt&&window.QWebChannel){
         host.bootstrap(async payload=>{try{
             await setBackground(payload.background);importConfig(JSON.parse(payload.config));
             window.qscEditor.ready=true;host.editorReady();
-        }catch(e){status(String(e));host.editorFailed(String(e));}});
+        }catch(e){console.error(e.stack||String(e));status(String(e));host.editorFailed(String(e));}});
     });
 }else{window.qscEditor.ready=true;status('独立浏览器测试：没有连接手机。');}
