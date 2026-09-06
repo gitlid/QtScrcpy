@@ -1,0 +1,39 @@
+name: Keymapper dependency snapshot
+on:
+  push:
+    branches: [feature/scrcpy-keymapper]
+    paths: ['.github/workflows/keymapper-dependencies.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    if: github.repository == 'gitlid/QtScrcpy' && github.ref == 'refs/heads/feature/scrcpy-keymapper'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: w4po/ScrcpyKeyMapper
+          ref: 022870e2caf905046c8e7502d4053bb5f171c1e4
+          path: upstream
+          persist-credentials: false
+      - name: Fetch fixed-version dependencies and license notices
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p snapshot/upstream snapshot/npm
+          cp -R upstream/js upstream/css upstream/index.html upstream/LICENSE upstream/README* snapshot/upstream/
+          mkdir -p snapshot/upstream/assets
+          cp upstream/assets/favicon.svg snapshot/upstream/assets/
+          git -C upstream rev-parse HEAD > snapshot/upstream-commit.txt
+          curl --fail --location --retry 3 https://registry.npmjs.org/konva/-/konva-9.2.3.tgz -o snapshot/npm/konva-9.2.3.tgz
+          curl --fail --location --retry 3 https://registry.npmjs.org/bootstrap/-/bootstrap-5.3.3.tgz -o snapshot/npm/bootstrap-5.3.3.tgz
+          sha256sum snapshot/npm/*.tgz > snapshot/npm/SHA256SUMS
+          tar -czf "$RUNNER_TEMP/keymapper-dependencies.tar.gz" -C snapshot .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keymapper-dependencies
+          path: ${{ runner.temp }}/keymapper-dependencies.tar.gz
+          retention-days: 7
+          if-no-files-found: error
