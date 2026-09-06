@@ -1,4 +1,5 @@
 name: Keymap Macro Source Snapshot
+# RC2 cursor/mouse routing investigation; source-only artifact, no credentials.
 on:
   push:
     branches: [feature/keymap-macro-v2]
