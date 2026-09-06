@@ -1,4 +1,4 @@
-/* Offline integration layout; upstream canvas node rendering is unchanged. */
+/* Offline layout. Original upstream node classes and drawing remain intact. */
 html,body {height:100%;overflow:hidden;font-family:Arial,'Microsoft YaHei',sans-serif}
 .wrapper {height:100vh;display:flex;flex-direction:column;min-height:0}
 .wrapper>.container-fluid {display:flex;flex-direction:column;flex:1;min-height:0}
@@ -8,6 +8,8 @@ main>aside.col-md-3 {flex:0 0 330px;width:330px;min-width:300px;max-width:330px;
 #canvasContainer {height:100%;min-height:0;margin-bottom:0}
 .right-section-container {display:block;overflow-x:hidden;padding:4px}
 .right-section-container>.card {width:100%;min-width:0;max-width:100%;flex:none}
+aside header.card-header {flex-wrap:wrap}
+aside header.card-header [data-i18n] {white-space:nowrap}
 .integration-bar {padding:8px 16px;background:var(--bs-tertiary-bg);border-bottom:1px solid var(--bs-border-color);font-size:14px;flex-shrink:0}
 .integration-bar label {display:block;font-weight:600;margin-bottom:4px}
 #integrationStatus {display:block;margin-bottom:5px;color:var(--bs-secondary-color)}
