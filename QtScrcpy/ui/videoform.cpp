@@ -25,6 +25,7 @@
 #include "mousetap/mousetap.h"
 #include "ui_videoform.h"
 #include "videoform.h"
+#include "inputbinding.h"
 
 #ifdef Q_OS_MACOS
 #include "metalvideowindow.h"
@@ -56,6 +57,7 @@ VideoForm::VideoForm(bool framelessWindow, bool skin, bool showToolbar, int deco
 
 VideoForm::~VideoForm()
 {
+    grabCursor(false);
     delete ui;
 }
 
@@ -259,6 +261,18 @@ void VideoForm::moveCenter()
 void VideoForm::installShortcut()
 {
     QShortcut *shortcut = nullptr;
+
+    // Emergency stop remains available even when a game keymap has grabbed
+    // the cursor. It also ends an accidental in-progress recording.
+    shortcut = new QShortcut(QKeySequence("Ctrl+Shift+X"), this);
+    shortcut->setAutoRepeat(false);
+    connect(shortcut, &QShortcut::activated, this, [this]() {
+        auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+        if (device) {
+            device->stopActionPlayback();
+            device->stopActionRecording();
+        }
+    });
 
     // switchFullScreen
     shortcut = new QShortcut(QKeySequence("Ctrl+f"), this);
@@ -632,8 +646,12 @@ void VideoForm::updateFPS(quint32 fps)
 
 void VideoForm::grabCursor(bool grab)
 {
-    QRect rc = getGrabCursorRect();
-    MouseTap::getInstance()->enableMouseEventTap(rc, grab);
+    if (grab && (!isVisible() || !isActiveWindow())) { return; }
+    const bool owned = m_mouseLookCursor.active();
+    m_mouseLookCursor.set(videoWidget(), grab);
+    if (grab || owned) {
+        MouseTap::getInstance()->enableMouseEventTap(getGrabCursorRect(), grab);
+    }
 }
 
 void VideoForm::onFrame(int width, int height, uint8_t *dataY, uint8_t *dataU, uint8_t *dataV, int linesizeY, int linesizeU, int linesizeV)
@@ -684,14 +702,16 @@ void VideoForm::mousePressEvent(QMouseEvent *event)
 {
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (event->button() == Qt::MiddleButton) {
-        if (device && !device->isCurrentCustomKeymap()) {
+        if (device && !device->isCurrentCustomKeymap()
+            && !InputBinding::isMouseSwitch(device->currentKeymapScript(), event->button())) {
             device->postGoHome();
             return;
         }
     }
 
     if (event->button() == Qt::RightButton) {
-        if (device && !device->isCurrentCustomKeymap()) {
+        if (device && !device->isCurrentCustomKeymap()
+            && !InputBinding::isMouseSwitch(device->currentKeymapScript(), event->button())) {
             device->postGoBack();
             return;
         }
@@ -805,7 +825,8 @@ void VideoForm::mouseDoubleClickEvent(QMouseEvent *event)
         }
     }
 
-    if (event->button() == Qt::RightButton && device && !device->isCurrentCustomKeymap()) {
+    if (event->button() == Qt::RightButton && device && !device->isCurrentCustomKeymap()
+        && !InputBinding::isMouseSwitch(device->currentKeymapScript(), event->button())) {
         emit device->postBackOrScreenOn(event->type() == QEvent::MouseButtonPress);
     }
 
@@ -856,13 +877,49 @@ void VideoForm::wheelEvent(QWheelEvent *event)
     }
 }
 
+bool VideoForm::event(QEvent *event)
+{
+    auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+    if (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::FocusOut) {
+        const bool captured = m_mouseLookCursor.active();
+        grabCursor(false);
+        if (device) {
+            // Do not steal inputs from background macro playback.
+            if (captured && !device->isActionPlaying()) {
+                if (device->isActionRecording()) { device->pauseActionMacro(); }
+                else { device->prepareKeymapEditing(); }
+            }
+            device->releaseKeyboard();
+        }
+    }
+    if (device && device->isUhidKeyboardEnabled()) {
+        if (event->type() == QEvent::ShortcutOverride) {
+            // The application-wide emergency-stop filter runs before this.
+            // Ctrl+C/V/A and similar chords belong to the phone in HID mode.
+            event->accept();
+            return true;
+        }
+        if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
+            auto *key = static_cast<QKeyEvent *>(event);
+            if (key->key() == Qt::Key_Tab || key->key() == Qt::Key_Backtab) {
+                if (event->type() == QEvent::KeyPress) { keyPressEvent(key); }
+                else { keyReleaseEvent(key); }
+                event->accept();
+                return true;
+            }
+        }
+    }
+    return QWidget::event(event);
+}
+
 void VideoForm::keyPressEvent(QKeyEvent *event)
 {
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (!device) {
         return;
     }
-    if (Qt::Key_Escape == event->key() && !event->isAutoRepeat() && isFullScreen()) {
+    if (Qt::Key_Escape == event->key() && !event->isAutoRepeat() && isFullScreen()
+        && !device->isUhidKeyboardEnabled() && !device->isCurrentCustomKeymap()) {
         switchFullScreen();
     }
 
@@ -941,6 +998,7 @@ void VideoForm::resizeEvent(QResizeEvent *event)
 
 void VideoForm::closeEvent(QCloseEvent *event)
 {
+    grabCursor(false);
     Q_UNUSED(event)
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (!device) {

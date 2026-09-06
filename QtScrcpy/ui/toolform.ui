@@ -94,6 +94,16 @@
     </widget>
    </item>
    <item>
+    <widget class="QPushButton" name="actionMacroBtn">
+     <property name="toolTip">
+      <string>action macro: record, save, load, loop and stop</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QPushButton" name="openScreenBtn">
      <property name="toolTip">
       <string>open screen</string>

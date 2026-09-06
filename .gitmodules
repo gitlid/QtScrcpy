@@ -1,3 +1,6 @@
 [submodule "QtScrcpy/QtScrcpyCore"]
 	path = QtScrcpy/QtScrcpyCore
-	url = git@github.com:barry-ran/QtScrcpyCore.git
+	url = https://github.com/gitlid/QtScrcpyCore.git
+[submodule "QtScrcpy/third_party/ScrcpyKeyMapper"]
+	path = QtScrcpy/third_party/ScrcpyKeyMapper
+	url = https://github.com/w4po/ScrcpyKeyMapper.git

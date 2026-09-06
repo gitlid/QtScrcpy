@@ -1,0 +1,117 @@
+name: Keymap V2 Check
+on:
+  push:
+    branches: [feature/keymap-macro-v2]
+    paths: ['QtScrcpy/**', 'tests/**', 'CMakeLists.txt', '.github/workflows/keymap-v2-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: keymap-v2-check
+  cancel-in-progress: true
+jobs:
+  windows:
+    if: github.repository == 'gitlid/QtScrcpy' && github.ref == 'refs/heads/feature/keymap-macro-v2'
+    runs-on: windows-2022
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: Keep source line endings stable on the build runner
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4.1.1
+        with:
+          version: '5.15.2'
+          arch: win64_msvc2019_64
+          cache: true
+      - name: Configure and build committed sources
+        shell: pwsh
+        run: |
+          cmake -S . -B build-v2 -G 'Visual Studio 17 2022' -A x64 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DQSC_BUILD_ACTION_MACRO_TESTS=ON
+          if ($LASTEXITCODE -ne 0) { throw 'Configure failed' }
+          cmake --build build-v2 --config RelWithDebInfo --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+      - name: Macro, UHID, mouse and UI tests
+        shell: pwsh
+        run: |
+          $env:PATH="$(Join-Path $PWD 'output/x64/RelWithDebInfo');$env:PATH"
+          $env:QT_QPA_PLATFORM='offscreen'
+          $env:QSC_TEST_SCREENSHOT=Join-Path $PWD 'build-v2/editor-test.png'
+          $env:QSC_MOUSE_SCREENSHOT=Join-Path $PWD 'build-v2/mouse-binding-editor.png'
+          ctest --test-dir build-v2 -C RelWithDebInfo --output-on-failure --output-junit results.xml --timeout 60
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+          git rev-parse HEAD | Set-Content tested-commit.txt
+      - name: Verify editor with native Windows rendering
+        shell: pwsh
+        run: |
+          $env:PATH="$(Join-Path $PWD 'output/x64/RelWithDebInfo');$env:PATH"
+          $env:QT_QPA_PLATFORM='windows'
+          $env:QSC_MOUSE_SCREENSHOT=Join-Path $PWD 'build-v2/mouse-binding-editor-native.png'
+          & 'build-v2/tests/RelWithDebInfo/mousebinding_ui_tests.exe' editor_roundtrip
+          if ($LASTEXITCODE -ne 0) { throw 'Native editor check failed' }
+      - name: Package portable Windows candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $name='QtScrcpy-keymap-macro-0.2.0-rc.2-win64'
+          $package=Join-Path $PWD "dist/$name"
+          New-Item $package -ItemType Directory -Force | Out-Null
+          Copy-Item 'output/x64/RelWithDebInfo/*' $package -Recurse
+          Copy-Item 'config','keymap' $package -Recurse
+          Copy-Item 'LICENSE' (Join-Path $package 'LICENSE-QtScrcpy')
+          Copy-Item 'QtScrcpy/QtScrcpyCore/LICENSE' (Join-Path $package 'LICENSE-QtScrcpyCore')
+          Copy-Item 'docs/keymap-macro-v2.zh-CN.md' (Join-Path $package 'README-v2.zh-CN.md')
+          Copy-Item 'docs/mouse-mapping.zh-CN.md' (Join-Path $package 'README-mouse.zh-CN.md')
+          # Preserve CRLF for distributed batch files as in previous Windows packages.
+          # This changes only packaging line endings, never the audio script logic.
+          Get-ChildItem $package -Filter '*.bat' -File -Recurse | ForEach-Object {
+            $text=[IO.File]::ReadAllText($_.FullName)
+            $text=$text.Replace("`r`n","`n").Replace("`n","`r`n")
+            [IO.File]::WriteAllText($_.FullName,$text,[Text.UTF8Encoding]::new($false))
+          }
+          Get-ChildItem $package -Include '*.lib','*.pdb','*.exp' -Recurse | Remove-Item
+          windeployqt --release --no-translations (Join-Path $package 'QtScrcpy.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Deploy failed' }
+          foreach($dll in @('msvcp140.dll','msvcp140_1.dll','vcruntime140.dll','vcruntime140_1.dll')) { Copy-Item (Join-Path $env:WINDIR "System32/$dll") $package }
+          $qtPrefix=(& qmake -query QT_INSTALL_PREFIX).Trim()
+          foreach($entry in @(@{Name='upstream';Root=(Join-Path $PWD 'QtScrcpy/QtScrcpyCore/src/third_party')},@{Name='Qt';Root=$qtPrefix})) {
+            Get-ChildItem $entry.Root -File -Recurse | Where-Object {$_.Name -match '^(LICENSE|COPYING|NOTICE|COPYRIGHT)(\.|$|-)'} | ForEach-Object {
+              $relative=[IO.Path]::GetRelativePath($entry.Root,$_.FullName)
+              $target=Join-Path $package "licenses/$($entry.Name)/$relative"
+              New-Item (Split-Path $target) -ItemType Directory -Force | Out-Null
+              Copy-Item $_.FullName $target
+            }
+          }
+          $mainSha=git rev-parse HEAD
+          $coreSha=git -C QtScrcpy/QtScrcpyCore rev-parse HEAD
+          @{version='0.2.0-rc.2';mainCommit=$mainSha;coreCommit=$coreSha;runId=$env:GITHUB_RUN_ID;newFeaturesDeviceTested=$false;maximumPlaybackSpeed=8;mouseButtonMapping=$true;audioChanged=$false} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
+          $p=Start-Process (Join-Path $package 'QtScrcpy.exe') -WorkingDirectory $package -PassThru
+          Start-Sleep -Seconds 5
+          if($p.HasExited){throw "Startup failed: $($p.ExitCode)"}
+          Stop-Process -Id $p.Id
+          $zip=Join-Path $PWD "dist/$name.zip"
+          Compress-Archive $package $zip
+          $hash=(Get-FileHash $zip -Algorithm SHA256).Hash
+          [IO.File]::WriteAllText("$zip.sha256", "$hash  $name.zip`n")
+          Write-Output "Package SHA-256: $hash"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QtScrcpy-keymap-macro-v2-win64
+          path: dist/*.zip*
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: keymap-macro-v2-windows-tests
+          path: |
+            build-v2/Testing/Temporary/*.log
+            build-v2/results.xml
+            build-v2/editor-test.png
+            build-v2/mouse-binding-editor*.png
+            tested-commit.txt

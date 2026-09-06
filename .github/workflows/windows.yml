@@ -15,6 +15,8 @@ on:
       - 'ci/win**'
 jobs:
   build:
+    # This fork uses keymapper-integration.yml, including Qt WebEngine and regression tests.
+    if: github.repository != 'gitlid/QtScrcpy' && github.ref != 'refs/heads/feature/scrcpy-keymapper' && github.head_ref != 'feature/scrcpy-keymapper'
     name: Build
     # windows-latest目前是windows server 2022
     # windows server 2019安装的是vs2019，windows server 2016安装的是vs2017

@@ -1,0 +1,120 @@
+name: Action Macro RC
+
+on:
+  push:
+    branches: [feature/action-recorder]
+    paths:
+      - 'QtScrcpy/**'
+      - 'CMakeLists.txt'
+      - 'tests/**'
+      - 'docs/action-recorder.zh-CN.md'
+      - 'ci/action-macro/**'
+      - '.github/workflows/action-macro-rc.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: action-macro-rc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4.1.1
+        with:
+          version: '5.15.2'
+          arch: win64_msvc2019_64
+          cache: true
+      - name: Configure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S . -B build-action-macro -G 'Visual Studio 17 2022' -A x64 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DQSC_BUILD_ACTION_MACRO_TESTS=ON
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build-action-macro --config RelWithDebInfo --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'CMake build failed' }
+      - name: Regression and integration tests
+        shell: pwsh
+        run: |
+          $env:PATH = "$(Join-Path $PWD 'output/x64/RelWithDebInfo');$env:PATH"
+          ctest --test-dir build-action-macro -C RelWithDebInfo --output-on-failure --output-junit test-results.xml --timeout 60
+          if ($LASTEXITCODE -ne 0) { throw 'Regression or integration tests failed' }
+      - name: Package and smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = 'QtScrcpy-action-macro-0.1.0-rc.1-win64'
+          $package = Join-Path $PWD "dist/$name"
+          New-Item $package -ItemType Directory -Force | Out-Null
+          Copy-Item 'output/x64/RelWithDebInfo/*' $package -Recurse
+          Copy-Item 'config','keymap' $package -Recurse
+          Copy-Item 'LICENSE' (Join-Path $package 'LICENSE-QtScrcpy')
+          Copy-Item 'QtScrcpy/QtScrcpyCore/LICENSE' (Join-Path $package 'LICENSE-QtScrcpyCore')
+          Copy-Item 'docs/action-recorder.zh-CN.md' (Join-Path $package 'README-action-macro.zh-CN.md')
+          Get-ChildItem $package -Include '*.lib','*.pdb','*.exp' -Recurse | Remove-Item
+          windeployqt --release --no-translations (Join-Path $package 'QtScrcpy.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Qt deployment failed' }
+          foreach ($dll in @('msvcp140.dll','msvcp140_1.dll','vcruntime140.dll','vcruntime140_1.dll')) {
+            Copy-Item (Join-Path $env:WINDIR "System32/$dll") $package
+          }
+          $qtPrefix = (& qmake -query QT_INSTALL_PREFIX).Trim()
+          foreach ($entry in @(@{Name='upstream-dependencies';Root=(Join-Path $PWD 'QtScrcpy/QtScrcpyCore/src/third_party')}, @{Name='Qt';Root=$qtPrefix})) {
+            Get-ChildItem $entry.Root -File -Recurse | Where-Object { $_.Name -match '^(LICENSE|COPYING|NOTICE|COPYRIGHT)(\.|$|-)' } | ForEach-Object {
+              $relative = [IO.Path]::GetRelativePath($entry.Root, $_.FullName)
+              $target = Join-Path $package "licenses/$($entry.Name)/$relative"
+              New-Item (Split-Path $target) -ItemType Directory -Force | Out-Null
+              Copy-Item $_.FullName $target
+            }
+          }
+          @'
+          This is a modified QtScrcpy build, not an official upstream release.
+          QtScrcpy: https://github.com/barry-ran/QtScrcpy (Apache-2.0)
+          QtScrcpyCore: https://github.com/barry-ran/QtScrcpyCore (Apache-2.0)
+          Modified sources: https://github.com/gitlid/QtScrcpy/tree/feature/action-recorder
+          Core modifications: https://github.com/gitlid/QtScrcpyCore/tree/feature/action-recorder
+          Qt runtime 5.15.2: https://download.qt.io/archive/qt/5.15/5.15.2/
+          FFmpeg shared libraries: upstream QtScrcpyCore src/third_party/ffmpeg
+          Android Debug Bridge and scrcpy server: upstream QtScrcpyCore src/third_party
+          Microsoft Visual C++ runtime: Microsoft redistributable components.
+          Available dependency license/notice files are retained in licenses/.
+          See build-info.json for the exact matching source commits.
+          '@ | Set-Content (Join-Path $package 'THIRD-PARTY-NOTICES.txt') -Encoding utf8
+          $mainSha = git rev-parse HEAD
+          $coreSha = git -C QtScrcpy/QtScrcpyCore rev-parse HEAD
+          @{version='0.1.0-rc.1';mainCommit=$mainSha;coreCommit=$coreSha;runId=$env:GITHUB_RUN_ID;deviceTested=$false;build='MSVC 2022 x64 / Qt 5.15.2 / RelWithDebInfo'} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
+          $process = Start-Process -FilePath (Join-Path $package 'QtScrcpy.exe') -WorkingDirectory $package -PassThru
+          Start-Sleep -Seconds 5
+          if ($process.HasExited) { throw "Startup smoke test failed: exit $($process.ExitCode)" }
+          Stop-Process -Id $process.Id
+          $archive = Join-Path $PWD "dist/$name.zip"
+          Compress-Archive $package $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash
+          "$hash  $name.zip" | Set-Content "$archive.sha256" -Encoding ascii
+          Write-Output "Package SHA-256: $hash"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QtScrcpy-action-macro-win64-${{ github.sha }}
+          path: |
+            dist/QtScrcpy-action-macro-0.1.0-rc.1-win64.zip
+            dist/QtScrcpy-action-macro-0.1.0-rc.1-win64.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: action-macro-test-logs-${{ github.sha }}
+          path: |
+            build-action-macro/Testing/Temporary/*.log
+            build-action-macro/test-results.xml
+          if-no-files-found: ignore

@@ -1,0 +1,98 @@
+--- a/QtScrcpy/ui/keymapeditor.cpp
++++ b/QtScrcpy/ui/keymapeditor.cpp
+@@ -70,7 +70,7 @@
+ }
+ void KeymapEditor::refreshMouseLook(){
+  const QSignalBlocker blocker(m_mouseLook);
+- const bool available=m_document.root["mouseMoveMap"].isObject();
++ const bool available=m_document.root.value("mouseMoveMap").isObject();
+  const bool enabled=available&&m_document.root["mouseLookEnabled"].toBool(false);
+  m_mouseLook->setEnabled(available);m_mouseLook->setChecked(enabled);
+  m_document.root["mouseLookEnabled"]=enabled;
+--- a/tests/mousebinding_ui_test.cpp
++++ b/tests/mousebinding_ui_test.cpp
+@@ -117,7 +117,9 @@
+ }
+ bool cursorDeleted() {
+     MouseLookCursor cursor;auto*video=new QWidget;cursor.set(video,true);delete video;cursor.release();
+-    QWidget replacement;cursor.set(&replacement,true);cursor.release();return !cursor.active()&&!replacement.testAttribute(Qt::WA_SetCursor);
++    QWidget parent;parent.setCursor(Qt::IBeamCursor);QWidget replacement(&parent);
++    const bool own=replacement.testAttribute(Qt::WA_SetCursor);const auto shape=replacement.cursor().shape();
++    cursor.set(&replacement,true);cursor.release();return !cursor.active()&&replacement.testAttribute(Qt::WA_SetCursor)==own&&replacement.cursor().shape()==shape;
+ }
+ }
+ int main(int argc,char **argv) {
+--- a/.github/workflows/windows.yml
++++ b/.github/workflows/windows.yml
+@@ -15,6 +15,7 @@
+       - 'ci/win**'
+ jobs:
+   build:
++    if: github.ref != 'refs/heads/feature/scrcpy-keymapper' && github.head_ref != 'feature/scrcpy-keymapper'
+     name: Build
+     # windows-latest目前是windows server 2022
+     # windows server 2019安装的是vs2019，windows server 2016安装的是vs2017
+--- a/.github/workflows/macos.yml
++++ b/.github/workflows/macos.yml
+@@ -12,6 +12,7 @@
+       - '.github/workflows/macos.yml'
+ jobs:
+   build:
++    if: github.ref != 'refs/heads/feature/scrcpy-keymapper' && github.head_ref != 'feature/scrcpy-keymapper'
+     name: Build
+     # macos-13 (Intel) runners are no longer supported by GitHub Actions.
+     # Use macos-14 (Apple Silicon) for all builds:
+--- a/.github/workflows/ubuntu.yml
++++ b/.github/workflows/ubuntu.yml
+@@ -14,6 +14,7 @@
+       - 'ci/linux/**'
+ jobs:
+   build:
++    if: github.ref != 'refs/heads/feature/scrcpy-keymapper' && github.head_ref != 'feature/scrcpy-keymapper'
+     name: Build
+     runs-on: ubuntu-22.04
+     container:
+--- a/QtScrcpy/ui/keymapdocument.h
++++ b/QtScrcpy/ui/keymapdocument.h
+@@ -66,7 +66,7 @@
+   }
+   return true;
+  }
+- bool parse(const QByteArray&bytes,QString*error=nullptr){if(bytes.size()>1024*1024){if(error)*error=QStringLiteral("映射文件超过 1 MiB。");return false;}QJsonParseError e;auto d=QJsonDocument::fromJson(bytes,&e);if(e.error!=QJsonParseError::NoError||!d.isObject()){if(error)*error=QStringLiteral("不是有效 JSON 对象。");return false;}auto candidate=d.object();if(!validate(candidate,error))return false;if(!candidate.contains("mouseLookEnabled"))candidate["mouseLookEnabled"]=false;root=candidate;return true;}
++ bool parse(const QByteArray&bytes,QString*error=nullptr){if(bytes.size()>1024*1024){if(error)*error=QStringLiteral("映射文件超过 1 MiB。");return false;}QJsonParseError e;auto d=QJsonDocument::fromJson(bytes,&e);if(e.error!=QJsonParseError::NoError||!d.isObject()){if(error)*error=QStringLiteral("不是有效 JSON 对象。");return false;}auto candidate=d.object();if(!candidate.contains("mouseLookEnabled"))candidate["mouseLookEnabled"]=candidate.value("mouseMoveMap").isObject();if(!validate(candidate,error))return false;root=candidate;return true;}
+  QJsonArray nodes()const{return root["keyMapNodes"].toArray();}
+  void setNode(int index,const QJsonObject&n){auto a=nodes();if(index>=0&&index<a.size()){a[index]=n;root["keyMapNodes"]=a;}}
+  int add(const QString&type){auto a=nodes();QJsonObject n{{"type",type}};
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -70,7 +70,7 @@
+ target_include_directories(inputrouting_tests PRIVATE ${CORE}/src/common ${CORE}/src/device/android
+     ${CORE}/src/device/controller ${CORE}/src/device/controller/inputconvert ${CORE}/src/device/controller/inputconvert/keymap)
+ target_link_libraries(inputrouting_tests PRIVATE QtScrcpyCore Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
+-foreach(case_name IN ITEMS legacy_look_off look_disabled look_enabled ordinary_no_capture legacy_no_capture unmapped_custom unmapped_normal mapped_target normal_primary_only look_moves released_side_mapped release_flag_no_view replace_capture edit_capture reload_no_view invalid_look_flags invalid_vertical_ratio unknown_with_primary)
++foreach(case_name IN ITEMS legacy_look_on look_disabled look_enabled ordinary_no_capture legacy_capture unmapped_custom unmapped_normal mapped_target normal_primary_only look_moves released_side_mapped release_flag_no_view replace_capture edit_capture reload_no_view invalid_look_flags invalid_vertical_ratio unknown_with_primary)
+     add_test(NAME routing_${case_name} COMMAND inputrouting_tests ${case_name})
+     set_tests_properties(routing_${case_name} PROPERTIES TIMEOUT 15)
+ endforeach()
+--- a/tests/mousebinding_ui_test.cpp
++++ b/tests/mousebinding_ui_test.cpp
+@@ -88,7 +88,7 @@
+     KeymapEditor editor(frame,QString::fromUtf8(QJsonDocument(legacyLook()).toJson()));
+     auto *box=editor.findChild<QCheckBox*>("mouseLookEnabled");
+     auto r=QJsonDocument::fromJson(editor.script().toUtf8()).object();
+-    return box&&box->isEnabled()&&!box->isChecked()&&r["mouseLookEnabled"].isBool()&&!r["mouseLookEnabled"].toBool()&&r.contains("mouseMoveMap");
++    return box&&box->isEnabled()&&box->isChecked()&&r["mouseLookEnabled"].isBool()&&r["mouseLookEnabled"].toBool()&&r.contains("mouseMoveMap");
+ }
+ bool lookRoundtrip() {
+     QPixmap frame(400,800);frame.fill(Qt::darkGray);
+--- a/QtScrcpy/ui/keymapeditor.cpp
++++ b/QtScrcpy/ui/keymapeditor.cpp
+@@ -44,7 +44,7 @@
+  right->addLayout(row);
+  m_mouseLook=new QCheckBox(tr("鼠标视角（隐藏/锁定鼠标，移动即滑动）"),this);
+  m_mouseLook->setObjectName("mouseLookEnabled");right->addWidget(m_mouseLook);
+- m_mouseLook->setToolTip(tr("普通键位映射不需要此功能。只有需要 FPS 视角且已配置 mouseMoveMap 时才开启。旧方案默认关闭；取消勾选不会删除原视角参数。"));
++ m_mouseLook->setToolTip(tr("普通键位映射不需要此功能。只有需要 FPS 视角且已配置 mouseMoveMap 时才开启。旧 FPS 方案保留视角状态并在此显示；取消勾选不会删除原视角参数。"));
+  connect(m_mouseLook,&QCheckBox::toggled,this,[this](bool enabled){m_document.root["mouseLookEnabled"]=enabled;m_dirty=true;});
+  auto*remove=new QPushButton(tr("删除选中控件"),this);right->addWidget(remove);
+  connect(remove,&QPushButton::clicked,this,[this](){int i=m_list->currentRow();auto a=m_document.nodes();if(i<0||i>=a.size())return;a.removeAt(i);m_document.root["keyMapNodes"]=a;m_dirty=true;rebuild();});

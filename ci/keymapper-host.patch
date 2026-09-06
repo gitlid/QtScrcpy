@@ -1,0 +1,454 @@
+diff --git a/QtScrcpy/main.cpp b/QtScrcpy/main.cpp
+index 00d190c..4af985f 100644
+--- a/QtScrcpy/main.cpp
++++ b/QtScrcpy/main.cpp
+@@ -1,4 +1,7 @@
+-﻿#include <QApplication>
++#ifdef QSC_WITH_KEYMAPPER
++#include "webkeymapdialog.h"
++#endif
++#include <QApplication>
+ #include <QColor>
+ #include <QDebug>
+ #include <QFile>
+@@ -104,6 +107,9 @@ int main(int argc, char *argv[])
+     QSurfaceFormat::setDefaultFormat(varFormat);
+ 
+     g_oldMessageHandler = qInstallMessageHandler(myMessageOutput);
++#ifdef QSC_WITH_KEYMAPPER
++    WebKeymapDialog::registerScheme();
++#endif
+     QApplication a(argc, argv);
+ 
+     // Set application icon for Linux (taskbar icon)
+diff --git a/QtScrcpy/ui/actionmacrodialog.cpp b/QtScrcpy/ui/actionmacrodialog.cpp
+index eeae062..4a00817 100644
+--- a/QtScrcpy/ui/actionmacrodialog.cpp
++++ b/QtScrcpy/ui/actionmacrodialog.cpp
+@@ -2,6 +2,9 @@
+ #include "actionmacrohotkey.h"
+ #include "macroexecutionoptions.h"
+ #include "keymapeditor.h"
++#ifdef QSC_WITH_KEYMAPPER
++#include "webkeymapdialog.h"
++#endif
+ #include <QOpenGLWidget>
+ #include <QTimer>
+ #include <QCloseEvent>
+@@ -14,7 +17,7 @@
+ 
+ ActionMacroDialog::ActionMacroDialog(const QString &serial,QWidget *parent):QDialog(parent),m_serial(serial)
+ {
+-    setWindowTitle(tr("Action Macro 0.2.0-rc.2 - %1").arg(serial));
++    setWindowTitle(tr("Action Macro 0.3.0-rc.1 - %1").arg(serial));
+     setAttribute(Qt::WA_DeleteOnClose,false);
+     resize(580,700);
+     m_statusLabel=new QLabel(this);
+@@ -141,9 +144,18 @@ void ActionMacroDialog::editKeymap(){
+     const QSize displaySize=surface->size();const QImage image=surface->grabFramebuffer();
+     if(image.isNull()){showError(tr("尚未取得画面，请等待投屏显示后重试。"));return;}
+     current->prepareKeymapEditing();
++    #ifdef QSC_WITH_KEYMAPPER
++    WebKeymapDialog editor(image,current->currentKeymapScript());
++#else
+     KeymapEditor editor(QPixmap::fromImage(image),current->currentKeymapScript());
++#endif
++    #ifdef QSC_WITH_KEYMAPPER
++    connect(current.data(),&qsc::IDevice::deviceDisconnected,&editor,[&editor](const QString&){editor.invalidateSession();});
++    connect(current.data(),&QObject::destroyed,&editor,[&editor](){editor.invalidateSession();});
++#else
+     connect(current.data(),&qsc::IDevice::deviceDisconnected,&editor,[&editor](const QString&){editor.done(QDialog::Rejected);});
+     connect(current.data(),&QObject::destroyed,&editor,[&editor](){editor.done(QDialog::Rejected);});
++#endif
+     const int result=editor.exec();
+     if(result==QDialog::Accepted&&current&&surface&&surface->size()==displaySize&&!current->isActionPlaying()&&!current->isActionRecording())current->updateScript(editor.script());
+ }
+diff --git a/QtScrcpy/ui/keymapdocument.h b/QtScrcpy/ui/keymapdocument.h
+index ec105bc..4a6bda0 100644
+--- a/QtScrcpy/ui/keymapdocument.h
++++ b/QtScrcpy/ui/keymapdocument.h
+@@ -10,19 +10,33 @@
+ #include "inputbinding.h"
+ class KeymapDocument {
+ public:
+- QJsonObject root{{"switchKey","Key_QuoteLeft"},{"keyMapNodes",QJsonArray()}};
++ QJsonObject root{{"switchKey","Key_QuoteLeft"},{"keyMapNodes",QJsonArray()},{"mouseLookEnabled",false}};
+  static bool binding(const QString&s){return !InputBinding::identity(s).isEmpty();}
+  static QJsonObject pos(double x,double y){return {{"x",x},{"y",y}};}
+  static bool point(const QJsonObject&n,const char*field){const auto p=n.value(field);if(!p.isObject())return false;for(const char*k:{"x","y"}){auto v=p.toObject().value(k);double d=v.toDouble(-1);if(!v.isDouble()||!std::isfinite(d)||d<0||d>=1)return false;}return true;}
+  static bool number(const QJsonObject&n,const char*k,double lo,double hi){auto v=n.value(k);double d=v.toDouble(-1);return v.isDouble()&&std::isfinite(d)&&d>=lo&&d<=hi;}
++ static bool safeValue(const QJsonValue &v,int depth=0){
++  if(depth>24)return false;
++  if(v.isString())return v.toString().size()<=4096;
++  if(v.isDouble())return std::isfinite(v.toDouble());
++  if(v.isArray()){const auto a=v.toArray();if(a.size()>1000)return false;for(const auto &x:a)if(!safeValue(x,depth+1))return false;}
++  if(v.isObject()){const auto o=v.toObject();if(o.size()>128)return false;for(auto i=o.begin();i!=o.end();++i){if(i.key()=="__proto__"||i.key()=="prototype"||i.key()=="constructor"||i.key().size()>128||!safeValue(i.value(),depth+1))return false;}}
++  return true;
++ }
++ static bool integer(const QJsonObject&n,const char*k,double lo,double hi){return number(n,k,lo,hi)&&std::floor(n[k].toDouble())==n[k].toDouble();}
+  static bool validate(const QJsonObject&o,QString*error=nullptr){
+   auto fail=[&](const QString&s){if(error)*error=s;return false;};
++  if(!safeValue(o))return fail(QStringLiteral("JSON 字段过深、过大或含保留字段。"));
+   if(!o.value("switchKey").isString()||!binding(o.value("switchKey").toString()))return fail(QStringLiteral("切换按键无效。"));
+   if(!o.value("keyMapNodes").isArray()||o["keyMapNodes"].toArray().size()>500)return fail(QStringLiteral("映射数量无效（上限 500）。"));
++  if(o.contains("mouseLookEnabled")&&!o["mouseLookEnabled"].isBool())return fail(QStringLiteral("鼠标视角开关必须是布尔值。"));
++  if(o["mouseLookEnabled"].toBool(false)&&!o["mouseMoveMap"].isObject())return fail(QStringLiteral("启用鼠标视角需要已有的视角配置。"));
+   QSet<QString>keys{InputBinding::identity(o["switchKey"].toString())};
+   auto bind=[&](const QJsonObject&n,const char*k){auto v=n.value(k);QString s=InputBinding::identity(v.toString());if(!v.isString()||s.isEmpty()||keys.contains(s))return false;keys.insert(s);return true;};
+   for(const auto&v:o["keyMapNodes"].toArray()){
+    if(!v.isObject())return fail(QStringLiteral("映射必须为对象。"));auto n=v.toObject();const QString type=n["type"].toString();
++   if(n.contains("opacity")&&!number(n,"opacity",0,1))return fail(QStringLiteral("透明度参数无效。"));
++   if(n.contains("androidKey")&&!integer(n,"androidKey",0,1000))return fail(QStringLiteral("Android 按键编号无效。"));
+    if(type=="KMT_STEER_WHEEL"){
+     if(!point(n,"centerPos"))return fail(QStringLiteral("摇杆中心无效。"));
+     for(const char*k:{"leftKey","rightKey","upKey","downKey"})if(!bind(n,k))return fail(QStringLiteral("摇杆按键无效或冲突。"));
+@@ -33,19 +47,26 @@ public:
+     if(type=="KMT_CLICK"||type=="KMT_CLICK_TWICE"){
+      if(!point(n,"pos"))return fail(QStringLiteral("点击位置无效。"));if(type=="KMT_CLICK"&&!n["switchMap"].isBool())return fail(QStringLiteral("switchMap 必须为布尔值。"));
+     }else if(type=="KMT_DRAG"){
+-     if(!point(n,"startPos")||!point(n,"endPos"))return fail(QStringLiteral("滑动坐标无效。"));if(n.contains("dragSpeed")&&!number(n,"dragSpeed",0.01,1.0))return fail(QStringLiteral("滑动速度无效。"));if(n.contains("startDelay")&&!number(n,"startDelay",0,600000))return fail(QStringLiteral("起始等待无效。"));
++     if(!point(n,"startPos")||!point(n,"endPos"))return fail(QStringLiteral("滑动坐标无效。"));if(n.contains("dragSpeed")&&!number(n,"dragSpeed",0.01,1.0))return fail(QStringLiteral("滑动速度无效。"));if(n.contains("startDelay")&&!integer(n,"startDelay",0,600000))return fail(QStringLiteral("起始等待无效。"));
+     }else if(type=="KMT_CLICK_MULTI"){
+-     auto a=n["clickNodes"].toArray();if(a.isEmpty()||a.size()>50)return fail(QStringLiteral("多次点击序列无效。"));for(const auto&c:a){auto obj=c.toObject();if(!point(obj,"pos")||!number(obj,"delay",0,600000))return fail(QStringLiteral("多次点击参数无效。"));}
+-    }else if(type!="KMT_ANDROID_KEY")return fail(QStringLiteral("暂不支持这种映射类型。"));
++     auto a=n["clickNodes"].toArray();if(a.isEmpty()||a.size()>50)return fail(QStringLiteral("多次点击序列无效。"));for(const auto&c:a){auto obj=c.toObject();if(!point(obj,"pos")||!integer(obj,"delay",0,600000)||(obj.contains("order")&&!integer(obj,"order",0,1000)))return fail(QStringLiteral("多次点击参数无效。"));}
++    }else if(type=="KMT_ANDROID_KEY"){if(!integer(n,"androidKey",1,1000))return fail(QStringLiteral("Android 按键编号无效。"));}else return fail(QStringLiteral("暂不支持这种映射类型。"));
+    }
+   }
+   if(o.contains("mouseMoveMap")){
+    if(!o["mouseMoveMap"].isObject())return fail(QStringLiteral("视角映射无效。"));const auto m=o["mouseMoveMap"].toObject();if(!point(m,"startPos"))return fail(QStringLiteral("视角起点无效。"));
+    if(m.contains("speedRatio")){if(!number(m,"speedRatio",0.00225,10000))return fail(QStringLiteral("视角灵敏度无效。"));}else if(!number(m,"speedRatioX",0.001,10000)||!number(m,"speedRatioY",0.001,10000))return fail(QStringLiteral("视角灵敏度无效。"));
++   if(m.contains("smallEyes")){
++    if(!m["smallEyes"].isObject())return fail(QStringLiteral("小眼睛配置无效。"));
++    const auto e=m["smallEyes"].toObject();
++    if(e["type"]!="KMT_CLICK"||!e["switchMap"].isBool()||!point(e,"pos")||!e["key"].isString()||!binding(e["key"].toString()))return fail(QStringLiteral("小眼睛参数无效。"));
++    if(e.contains("enabled")&&!e["enabled"].isBool())return fail(QStringLiteral("小眼睛开关无效。"));
++    if(o["mouseLookEnabled"].toBool(false)&&e["enabled"].toBool(true)&&!bind(e,"key"))return fail(QStringLiteral("小眼睛按键与其他映射冲突。"));
++   }
+   }
+   return true;
+  }
+- bool parse(const QByteArray&bytes,QString*error=nullptr){if(bytes.size()>1024*1024){if(error)*error=QStringLiteral("映射文件超过 1 MiB。");return false;}QJsonParseError e;auto d=QJsonDocument::fromJson(bytes,&e);if(e.error!=QJsonParseError::NoError||!d.isObject()){if(error)*error=QStringLiteral("不是有效 JSON 对象。");return false;}auto candidate=d.object();if(!validate(candidate,error))return false;root=candidate;return true;}
++ bool parse(const QByteArray&bytes,QString*error=nullptr){if(bytes.size()>1024*1024){if(error)*error=QStringLiteral("映射文件超过 1 MiB。");return false;}QJsonParseError e;auto d=QJsonDocument::fromJson(bytes,&e);if(e.error!=QJsonParseError::NoError||!d.isObject()){if(error)*error=QStringLiteral("不是有效 JSON 对象。");return false;}auto candidate=d.object();if(!validate(candidate,error))return false;if(!candidate.contains("mouseLookEnabled"))candidate["mouseLookEnabled"]=false;root=candidate;return true;}
+  QJsonArray nodes()const{return root["keyMapNodes"].toArray();}
+  void setNode(int index,const QJsonObject&n){auto a=nodes();if(index>=0&&index<a.size()){a[index]=n;root["keyMapNodes"]=a;}}
+  int add(const QString&type){auto a=nodes();QJsonObject n{{"type",type}};
+diff --git a/QtScrcpy/ui/keymapeditor.cpp b/QtScrcpy/ui/keymapeditor.cpp
+index c3915f2..ff5a516 100644
+--- a/QtScrcpy/ui/keymapeditor.cpp
++++ b/QtScrcpy/ui/keymapeditor.cpp
+@@ -1,5 +1,7 @@
+ #include "keymapeditor.h"
+ #include "inputbindingfield.h"
++#include <QCheckBox>
++#include <QSignalBlocker>
+ #include <QDir>
+ #include <QFileDialog>
+ #include <QFormLayout>
+@@ -39,7 +41,12 @@ KeymapEditor::KeymapEditor(const QPixmap&frame,const QString&script,QWidget*pare
+  m_scene=new QGraphicsScene(this);m_view=new QGraphicsView(m_scene,this);m_view->setMinimumSize(450,400);
+  m_list=new QListWidget(this);m_list->setObjectName("mappingNodes");auto*right=new QVBoxLayout;right->addWidget(m_list);auto*row=new QHBoxLayout;
+  for(const auto&p:QVector<QPair<QString,QString>>{{tr("点击"),"KMT_CLICK"},{tr("WASD"),"KMT_STEER_WHEEL"},{tr("滑动"),"KMT_DRAG"}}){auto*b=new QPushButton(p.first,this);row->addWidget(b);connect(b,&QPushButton::clicked,this,[this,p](){int i=m_document.add(p.second);m_dirty=true;rebuild();m_list->setCurrentRow(i);});}
+- right->addLayout(row);auto*remove=new QPushButton(tr("删除选中控件"),this);right->addWidget(remove);
++ right->addLayout(row);
++ m_mouseLook=new QCheckBox(tr("鼠标视角（隐藏/锁定鼠标，移动即滑动）"),this);
++ m_mouseLook->setObjectName("mouseLookEnabled");right->addWidget(m_mouseLook);
++ m_mouseLook->setToolTip(tr("普通键位映射不需要此功能。只有需要 FPS 视角且已配置 mouseMoveMap 时才开启。旧方案默认关闭；取消勾选不会删除原视角参数。"));
++ connect(m_mouseLook,&QCheckBox::toggled,this,[this](bool enabled){m_document.root["mouseLookEnabled"]=enabled;m_dirty=true;});
++ auto*remove=new QPushButton(tr("删除选中控件"),this);right->addWidget(remove);
+  connect(remove,&QPushButton::clicked,this,[this](){int i=m_list->currentRow();auto a=m_document.nodes();if(i<0||i>=a.size())return;a.removeAt(i);m_document.root["keyMapNodes"]=a;m_dirty=true;rebuild();});
+  auto*form=new QFormLayout;m_switch=new InputBindingField(this);m_switch->setObjectName("mappingSwitchKey");form->addRow(tr("开关映射键"),m_switch);
+  for(int i=0;i<4;++i){auto*k=new InputBindingField(this);k->setObjectName(QString("mappingBinding%1").arg(i));m_keys.append(k);form->addRow(i==0?tr("按键／左"):i==1?tr("右"):i==2?tr("上"):tr("下"),k);connect(k,&QLineEdit::editingFinished,this,&KeymapEditor::updateNode);}
+@@ -47,7 +54,7 @@ KeymapEditor::KeymapEditor(const QPixmap&frame,const QString&script,QWidget*pare
+  m_range=new QDoubleSpinBox(this);m_range->setRange(.001,.4);m_range->setDecimals(3);m_range->setSingleStep(.01);form->addRow(tr("摇杆范围（相对宽高）"),m_range);
+  connect(m_range,QOverload<double>::of(&QDoubleSpinBox::valueChanged),this,[this](double){updateNode();});right->addLayout(form);
+  m_error=new QLabel(this);m_error->setWordWrap(true);m_error->setTextFormat(Qt::PlainText);right->addWidget(m_error);
+- auto*hint=new QLabel(tr("绑定框右侧箭头可选鼠标左键、右键、中键和侧键 X1 / X2；也可在框内按键或按侧键绑定。\n单击绑定框只选中，不绑定左键。拖动画面圆点调整位置；滑动有起点和终点。\n编辑画面为快照，不向手机发送点击。导入的其他映射保留原始字段。\n保存并应用后，回到投屏按开关映射键启用；再次按下返回普通/UHID 输入。"),this);hint->setWordWrap(true);right->addWidget(hint);
++ auto*hint=new QLabel(tr("已映射的键执行触摸；未映射的键继续作为 UHID 实体键盘输入。\n绑定框右侧箭头可选鼠标左键、右键、中键和侧键 X1 / X2；也可在框内按键或按侧键绑定。\n单击绑定框只选中，不绑定左键。拖动画面圆点调整位置；滑动有起点和终点。\n普通映射保留鼠标指针；只有明确勾选鼠标视角才移动即滑动。未绑定侧键忽略。\n编辑画面为快照，不向手机发送点击。导入的其他映射保留原始字段。\n保存并应用后，回到投屏按开关映射键启用；再次按下返回普通/UHID 输入。"),this);hint->setWordWrap(true);right->addWidget(hint);
+  auto*buttons=new QHBoxLayout;
+  for(const QString&s:{tr("导入"),tr("保存"),tr("保存并应用"),tr("取消")}){
+   auto*b=new QPushButton(s,this);buttons->addWidget(b);
+@@ -59,7 +66,14 @@ KeymapEditor::KeymapEditor(const QPixmap&frame,const QString&script,QWidget*pare
+  auto*body=new QHBoxLayout;body->addWidget(m_view,3);body->addLayout(right,2);auto*all=new QVBoxLayout(this);all->addLayout(body);all->addLayout(buttons);
+  connect(m_list,&QListWidget::currentRowChanged,this,[this](int){properties();});
+  if(!script.trimmed().isEmpty()){QString e;if(!m_document.parse(script.toUtf8(),&e))m_error->setText(tr("当前映射未导入：%1。原文件不会被覆盖。").arg(e));}
+- m_switch->setText(m_document.root["switchKey"].toString());rebuild();
++ refreshMouseLook();m_switch->setText(m_document.root["switchKey"].toString());rebuild();
++}
++void KeymapEditor::refreshMouseLook(){
++ const QSignalBlocker blocker(m_mouseLook);
++ const bool available=m_document.root["mouseMoveMap"].isObject();
++ const bool enabled=available&&m_document.root["mouseLookEnabled"].toBool(false);
++ m_mouseLook->setEnabled(available);m_mouseLook->setChecked(enabled);
++ m_document.root["mouseLookEnabled"]=enabled;
+ }
+ void KeymapEditor::rebuild(){
+  int selected=m_list->currentRow();m_updating=true;m_list->clear();for(const auto&v:m_document.nodes()){auto n=v.toObject();m_list->addItem(n["type"].toString()+"  "+InputBinding::label(n["key"].toString()));}
+@@ -87,7 +101,7 @@ void KeymapEditor::load(){
+  if(m_dirty&&QMessageBox::question(this,tr("未保存"),tr("丢弃当前编辑并导入？"),QMessageBox::Yes|QMessageBox::Cancel,QMessageBox::Cancel)!=QMessageBox::Yes)return;
+  QString p=QFileDialog::getOpenFileName(this,tr("导入映射"),QCoreApplication::applicationDirPath()+"/keymap",tr("JSON (*.json)"));if(p.isEmpty())return;
+  QFile f(p);if(!f.open(QIODevice::ReadOnly)||f.size()>1024*1024){m_error->setText(tr("文件不可读或超过 1 MiB。"));return;}QString e;if(!m_document.parse(f.readAll(),&e)){m_error->setText(e);return;}
+- m_path=p;m_dirty=false;m_switch->setText(m_document.root["switchKey"].toString());m_error->clear();rebuild();
++ refreshMouseLook();m_path=p;m_dirty=false;m_switch->setText(m_document.root["switchKey"].toString());m_error->clear();rebuild();
+ }
+ bool KeymapEditor::save(){
+  QString e;if(!KeymapDocument::validate(m_document.root,&e)){m_error->setText(e);return false;}QString dir=QCoreApplication::applicationDirPath()+"/keymap";QDir().mkpath(dir);
+diff --git a/QtScrcpy/ui/keymapeditor.h b/QtScrcpy/ui/keymapeditor.h
+index 4ae9203..c624044 100644
+--- a/QtScrcpy/ui/keymapeditor.h
++++ b/QtScrcpy/ui/keymapeditor.h
+@@ -7,7 +7,7 @@
+ #include <QGraphicsView>
+ #include <QTimer>
+ #include "keymapdocument.h"
+-class QListWidget;class QLineEdit;class QDoubleSpinBox;class QLabel;
++class QListWidget;class QLineEdit;class QDoubleSpinBox;class QLabel;class QCheckBox;
+ class KeymapEditor : public QDialog {
+  Q_OBJECT
+ public:
+@@ -24,9 +24,11 @@ protected:
+  void resizeEvent(QResizeEvent *event) override { QDialog::resizeEvent(event);scheduleFit(); }
+ private:
+  void scheduleFit(){QTimer::singleShot(0,this,[this](){if(m_view&&m_scene&&!m_scene->sceneRect().isEmpty())m_view->fitInView(m_scene->sceneRect(),Qt::KeepAspectRatio);});}
++ void refreshMouseLook();
+  void rebuild();void properties();void updateNode();void load();bool save();void apply();void reject()override;
+  KeymapDocument m_document;QPixmap m_frame;QString m_path;bool m_dirty=false;bool m_updating=false;
+  QGraphicsScene*m_scene=nullptr;QGraphicsView*m_view=nullptr;QListWidget*m_list=nullptr;
++ QCheckBox*m_mouseLook=nullptr;
+  QVector<QLineEdit*>m_keys;QLineEdit*m_switch=nullptr;QDoubleSpinBox*m_range=nullptr;QLabel*m_error=nullptr;
+ };
+ #endif
+diff --git a/QtScrcpy/ui/mouselookcursor.h b/QtScrcpy/ui/mouselookcursor.h
+new file mode 100644
+index 0000000..0a11073
+--- /dev/null
++++ b/QtScrcpy/ui/mouselookcursor.h
+@@ -0,0 +1,35 @@
++#ifndef MOUSELOOKCURSOR_H
++#define MOUSELOOKCURSOR_H
++#include <QCursor>
++#include <QPointer>
++#include <QWidget>
++
++// Own only this video's cursor. Never modify the application override stack.
++class MouseLookCursor {
++public:
++    ~MouseLookCursor() { release(); }
++    bool active() const { return m_active; }
++    void set(QWidget *widget, bool enabled) {
++        if (!enabled || widget != m_widget.data()) { release(); }
++        if (!enabled || !widget || m_active) { return; }
++        m_widget = widget;
++        m_hadCursor = widget->testAttribute(Qt::WA_SetCursor);
++        m_saved = widget->cursor();
++        m_active = true;
++        widget->setCursor(Qt::BlankCursor);
++    }
++    void release() {
++        if (m_active && m_widget) {
++            if (m_hadCursor) { m_widget->setCursor(m_saved); }
++            else { m_widget->unsetCursor(); }
++        }
++        m_widget.clear();
++        m_active = false;
++    }
++private:
++    QPointer<QWidget> m_widget;
++    QCursor m_saved;
++    bool m_active = false;
++    bool m_hadCursor = false;
++};
++#endif
+diff --git a/QtScrcpy/ui/videoform.cpp b/QtScrcpy/ui/videoform.cpp
+index af8044f..a2171c5 100644
+--- a/QtScrcpy/ui/videoform.cpp
++++ b/QtScrcpy/ui/videoform.cpp
+@@ -57,6 +57,7 @@ VideoForm::VideoForm(bool framelessWindow, bool skin, bool showToolbar, int deco
+ 
+ VideoForm::~VideoForm()
+ {
++    grabCursor(false);
+     delete ui;
+ }
+ 
+@@ -645,8 +646,12 @@ void VideoForm::updateFPS(quint32 fps)
+ 
+ void VideoForm::grabCursor(bool grab)
+ {
+-    QRect rc = getGrabCursorRect();
+-    MouseTap::getInstance()->enableMouseEventTap(rc, grab);
++    if (grab && (!isVisible() || !isActiveWindow())) { return; }
++    const bool owned = m_mouseLookCursor.active();
++    m_mouseLookCursor.set(videoWidget(), grab);
++    if (grab || owned) {
++        MouseTap::getInstance()->enableMouseEventTap(getGrabCursorRect(), grab);
++    }
+ }
+ 
+ void VideoForm::onFrame(int width, int height, uint8_t *dataY, uint8_t *dataU, uint8_t *dataV, int linesizeY, int linesizeU, int linesizeV)
+@@ -875,8 +880,17 @@ void VideoForm::wheelEvent(QWheelEvent *event)
+ bool VideoForm::event(QEvent *event)
+ {
+     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+-    if (device && (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::FocusOut)) {
+-        device->releaseKeyboard();
++    if (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::FocusOut) {
++        const bool captured = m_mouseLookCursor.active();
++        grabCursor(false);
++        if (device) {
++            // Do not steal inputs from background macro playback.
++            if (captured && !device->isActionPlaying()) {
++                if (device->isActionRecording()) { device->pauseActionMacro(); }
++                else { device->prepareKeymapEditing(); }
++            }
++            device->releaseKeyboard();
++        }
+     }
+     if (device && device->isUhidKeyboardEnabled()) {
+         if (event->type() == QEvent::ShortcutOverride) {
+@@ -904,7 +918,8 @@ void VideoForm::keyPressEvent(QKeyEvent *event)
+     if (!device) {
+         return;
+     }
+-    if (Qt::Key_Escape == event->key() && !event->isAutoRepeat() && isFullScreen()) {
++    if (Qt::Key_Escape == event->key() && !event->isAutoRepeat() && isFullScreen()
++        && !device->isUhidKeyboardEnabled() && !device->isCurrentCustomKeymap()) {
+         switchFullScreen();
+     }
+ 
+@@ -983,6 +998,7 @@ void VideoForm::resizeEvent(QResizeEvent *event)
+ 
+ void VideoForm::closeEvent(QCloseEvent *event)
+ {
++    grabCursor(false);
+     Q_UNUSED(event)
+     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+     if (!device) {
+diff --git a/QtScrcpy/ui/videoform.h b/QtScrcpy/ui/videoform.h
+index 1f88c4a..4e2dd75 100644
+--- a/QtScrcpy/ui/videoform.h
++++ b/QtScrcpy/ui/videoform.h
+@@ -4,6 +4,7 @@
+ #include <QPointer>
+ #include <QTimer>
+ #include <QWidget>
++#include "mouselookcursor.h"
+ 
+ #include "../QtScrcpyCore/include/QtScrcpyCore.h"
+ 
+@@ -97,6 +98,7 @@ private:
+     QPoint m_dragPosition;
+     float m_widthHeightRatio = 0.5f;
+     bool m_skin = true;
++    MouseLookCursor m_mouseLookCursor;
+     QPoint m_fullScreenBeforePos;
+     QString m_serial;
+     int m_decodeMode = 0;
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index c89e6e7..ba2fd42 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -65,3 +65,34 @@ if(MSVC)
+     target_compile_options(mousebinding_ui_tests PRIVATE /utf-8 /W3 /WX)
+     target_compile_options(mousemapping_tests PRIVATE /utf-8 /W3 /WX)
+ endif()
++
++add_executable(inputrouting_tests ${CORE}/tests/inputrouting_test.cpp)
++target_include_directories(inputrouting_tests PRIVATE ${CORE}/src/common ${CORE}/src/device/android
++    ${CORE}/src/device/controller ${CORE}/src/device/controller/inputconvert ${CORE}/src/device/controller/inputconvert/keymap)
++target_link_libraries(inputrouting_tests PRIVATE QtScrcpyCore Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
++foreach(case_name IN ITEMS legacy_look_off look_disabled look_enabled ordinary_no_capture legacy_no_capture unmapped_custom unmapped_normal mapped_target normal_primary_only look_moves released_side_mapped release_flag_no_view replace_capture edit_capture reload_no_view invalid_look_flags invalid_vertical_ratio unknown_with_primary)
++    add_test(NAME routing_${case_name} COMMAND inputrouting_tests ${case_name})
++    set_tests_properties(routing_${case_name} PROPERTIES TIMEOUT 15)
++endforeach()
++foreach(case_name IN ITEMS look_default look_roundtrip look_validation cursor_scope cursor_restore cursor_deleted)
++    add_test(NAME mouseui_${case_name} COMMAND mousebinding_ui_tests ${case_name})
++    set_tests_properties(mouseui_${case_name} PROPERTIES TIMEOUT 15)
++endforeach()
++if(MSVC)
++    target_compile_options(inputrouting_tests PRIVATE /utf-8 /W3 /WX)
++endif()
++
++add_executable(hybridkeyboard_tests ${CORE}/tests/hybridkeyboard_test.cpp)
++target_include_directories(hybridkeyboard_tests PRIVATE ${CORE}/src/common ${CORE}/src/device/android ${CORE}/src/device/controller ${CORE}/src/device/controller/inputconvert)
++target_link_libraries(hybridkeyboard_tests PRIVATE QtScrcpyCore Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
++if(MSVC)
++    target_compile_options(hybridkeyboard_tests PRIVATE /utf-8 /W3 /WX)
++endif()
++foreach(case_name IN ITEMS unmapped_letters tab escape mapped_priority mouse_only chord concurrent toggle_release mouse_toggle repeat orphan_release focus_release physical_pair toggle_reserved mapped_modifier legacy_mode reload mixed_macro paused_macro)
++    add_test(NAME hybrid_${case_name} COMMAND hybridkeyboard_tests ${case_name})
++    set_tests_properties(hybrid_${case_name} PROPERTIES TIMEOUT 15)
++endforeach()
++
++add_executable(keyboardrouting_policy_test ${CORE}/tests/keyboardrouting_policy_test.cpp)
++target_include_directories(keyboardrouting_policy_test PRIVATE ${CORE}/src/device/controller)
++add_test(NAME keyboardrouting_policy COMMAND keyboardrouting_policy_test)
+diff --git a/tests/mousebinding_ui_test.cpp b/tests/mousebinding_ui_test.cpp
+index 8566b35..f3150c1 100644
+--- a/tests/mousebinding_ui_test.cpp
++++ b/tests/mousebinding_ui_test.cpp
+@@ -1,4 +1,6 @@
+ #include <QApplication>
++#include <QCheckBox>
++#include "mouselookcursor.h"
+ #include <QAction>
+ #include <QContextMenuEvent>
+ #include <QDebug>
+@@ -76,13 +78,56 @@ bool toggleRouting() {
+     }
+     return !InputBinding::isMouseSwitch("{}",Qt::NoButton)&&!InputBinding::isMouseSwitch("broken",Qt::RightButton);
+ }
++QJsonObject legacyLook() {
++    KeymapDocument d;d.add("KMT_CLICK");d.root.remove("mouseLookEnabled");
++    d.root["mouseMoveMap"]=QJsonObject{{"startPos",KeymapDocument::pos(.5,.5)},{"speedRatio",1.}};
++    return d.root;
++}
++bool lookDefault() {
++    QPixmap frame(400,800);frame.fill(Qt::darkGray);
++    KeymapEditor editor(frame,QString::fromUtf8(QJsonDocument(legacyLook()).toJson()));
++    auto *box=editor.findChild<QCheckBox*>("mouseLookEnabled");
++    auto r=QJsonDocument::fromJson(editor.script().toUtf8()).object();
++    return box&&box->isEnabled()&&!box->isChecked()&&r["mouseLookEnabled"].isBool()&&!r["mouseLookEnabled"].toBool()&&r.contains("mouseMoveMap");
++}
++bool lookRoundtrip() {
++    QPixmap frame(400,800);frame.fill(Qt::darkGray);
++    KeymapEditor editor(frame,QString::fromUtf8(QJsonDocument(legacyLook()).toJson()));
++    auto *box=editor.findChild<QCheckBox*>("mouseLookEnabled");if(!box)return false;
++    box->setChecked(true);KeymapDocument loaded;if(!loaded.parse(editor.script().toUtf8())||!loaded.root["mouseLookEnabled"].toBool())return false;
++    KeymapEditor next(frame,editor.script());auto *nextBox=next.findChild<QCheckBox*>("mouseLookEnabled");
++    if(!nextBox||!nextBox->isChecked())return false;nextBox->setChecked(false);
++    return loaded.parse(next.script().toUtf8())&&!loaded.root["mouseLookEnabled"].toBool()&&loaded.root.contains("mouseMoveMap");
++}
++bool lookValidation() {
++    auto r=legacyLook();r["mouseLookEnabled"]="true";if(KeymapDocument::validate(r))return false;
++    r["mouseLookEnabled"]=true;r.remove("mouseMoveMap");if(KeymapDocument::validate(r))return false;
++    KeymapDocument empty;QPixmap frame(400,800);frame.fill(Qt::darkGray);KeymapEditor editor(frame,QString::fromUtf8(QJsonDocument(empty.root).toJson()));
++    auto *box=editor.findChild<QCheckBox*>("mouseLookEnabled");return box&&!box->isEnabled()&&!box->isChecked();
++}
++bool cursorScope() {
++    QWidget video,other;other.setCursor(Qt::IBeamCursor);MouseLookCursor cursor;
++    cursor.set(&video,true);cursor.set(&video,true);
++    return cursor.active()&&video.cursor().shape()==Qt::BlankCursor&&other.cursor().shape()==Qt::IBeamCursor&&!QGuiApplication::overrideCursor();
++}
++bool cursorRestore() {
++    QWidget video;video.setCursor(Qt::CrossCursor);
++    {MouseLookCursor cursor;cursor.set(&video,true);cursor.set(&video,true);cursor.release();cursor.release();if(video.cursor().shape()!=Qt::CrossCursor)return false;cursor.set(&video,true);}
++    return video.cursor().shape()==Qt::CrossCursor&&!QGuiApplication::overrideCursor();
++}
++bool cursorDeleted() {
++    MouseLookCursor cursor;auto*video=new QWidget;cursor.set(video,true);delete video;cursor.release();
++    QWidget replacement;cursor.set(&replacement,true);cursor.release();return !cursor.active()&&!replacement.testAttribute(Qt::WA_SetCursor);
++}
+ }
+ int main(int argc,char **argv) {
+     QApplication app(argc,argv);app.setQuitOnLastWindowClosed(false);
+     const QVector<QPair<QString,std::function<bool()>>> tests{
+         {"menu",menuButtons},{"direct",directButtons},{"left_focus",focusDoesNotBindLeft},{"keyboard",keyboardStillWorks},
+         {"alias_conflict",aliasesConflict},{"invalid",invalidButtons},{"namespaces",deviceNamespaces},
+-        {"editor_roundtrip",editorRoundtrip},{"toggle_routing",toggleRouting}
++        {"editor_roundtrip",editorRoundtrip},{"toggle_routing",toggleRouting},
++        {"look_default",lookDefault},{"look_roundtrip",lookRoundtrip},{"look_validation",lookValidation},
++        {"cursor_scope",cursorScope},{"cursor_restore",cursorRestore},{"cursor_deleted",cursorDeleted}
+     };
+     int ran=0,passed=0;for(const auto &t:tests){if(argc>1&&QString(argv[1])!=t.first)continue;++ran;bool ok=t.second();if(ok)++passed;qInfo()<<t.first<<(ok?"PASS":"FAIL");}
+     return ran>0&&passed==ran?0:1;

@@ -542,6 +542,26 @@
         <source>Encoder Settings...</source>
         <translation>编码器设置...</translation>
     </message>
+    <message>
+        <source>Keyboard mode:</source>
+        <translation>键盘模式：</translation>
+    </message>
+    <message>
+        <source>Compatible key injection</source>
+        <translation>兼容按键注入</translation>
+    </message>
+    <message>
+        <source>UHID physical keyboard</source>
+        <translation>UHID 实体键盘</translation>
+    </message>
+    <message>
+        <source>Phone keyboard settings</source>
+        <translation>手机键盘设置</translation>
+    </message>
+    <message>
+        <source>Applies on the next connection. For UHID, select the keyboard layout and IME on the phone. Game mapping takes priority while enabled.</source>
+        <translation>下次连接生效。UHID 模式下请在手机端选择键盘布局和输入法；开启游戏映射时优先使用映射。</translation>
+    </message>
 </context>
 <context>
     <name>PresetConfigDialog</name>

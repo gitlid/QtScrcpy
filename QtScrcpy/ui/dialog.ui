@@ -706,6 +706,23 @@
           </widget>
          </item>
          <item>
+          <widget class="QWidget" name="keyboardConfigWidget" native="true">
+           <layout class="QHBoxLayout" name="keyboardConfigLayout">
+            <property name="leftMargin"><number>0</number></property>
+            <property name="topMargin"><number>0</number></property>
+            <property name="rightMargin"><number>0</number></property>
+            <property name="bottomMargin"><number>0</number></property>
+            <item><widget class="QLabel" name="keyboardModeLabel"><property name="text"><string>Keyboard mode:</string></property></widget></item>
+            <item><widget class="QComboBox" name="keyboardModeBox">
+             <property name="toolTip"><string>Applies on the next connection. For UHID, select the keyboard layout and IME on the phone. Game mapping takes priority while enabled.</string></property>
+             <item><property name="text"><string>Compatible key injection</string></property></item>
+             <item><property name="text"><string>UHID physical keyboard</string></property></item>
+            </widget></item>
+            <item><widget class="QPushButton" name="keyboardSettingsBtn"><property name="text"><string>Phone keyboard settings</string></property></widget></item>
+           </layout>
+          </widget>
+         </item>
+         <item>
           <widget class="QWidget" name="configWidget4" native="true">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
