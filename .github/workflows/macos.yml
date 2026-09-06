@@ -12,7 +12,8 @@ on:
       - '.github/workflows/macos.yml'
 jobs:
   build:
-    if: github.ref != 'refs/heads/feature/scrcpy-keymapper' && github.head_ref != 'feature/scrcpy-keymapper'
+    # The integrated fork currently validates Windows x64; retain this upstream-only recipe.
+    if: github.repository != 'gitlid/QtScrcpy' && github.ref != 'refs/heads/feature/scrcpy-keymapper' && github.head_ref != 'feature/scrcpy-keymapper'
     name: Build
     # macos-13 (Intel) runners are no longer supported by GitHub Actions.
     # Use macos-14 (Apple Silicon) for all builds:

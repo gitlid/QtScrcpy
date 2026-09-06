@@ -1,14 +1,14 @@
 name: Keymapper dependency snapshot
 on:
   push:
-    branches: [feature/scrcpy-keymapper]
+    branches: [dev, feature/scrcpy-keymapper]
     paths: ['.github/workflows/keymapper-dependencies.yml']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   snapshot:
-    if: github.repository == 'gitlid/QtScrcpy' && github.ref == 'refs/heads/feature/scrcpy-keymapper'
+    if: github.repository == 'gitlid/QtScrcpy'
     runs-on: ubuntu-22.04
     timeout-minutes: 8
     steps:

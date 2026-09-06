@@ -1,8 +1,12 @@
 name: ScrcpyKeyMapper integration
 on:
   push:
-    branches: [feature/scrcpy-keymapper]
-    paths: ['QtScrcpy/**', 'tests/**', 'ci/**', 'CMakeLists.txt', '.gitmodules', '.github/workflows/keymapper-integration.yml']
+    branches: [dev, feature/scrcpy-keymapper]
+    tags: ['keymapper-v*']
+    paths: ['QtScrcpy/**', 'tests/**', 'ci/**', 'config/**', 'keymap/**', 'CMakeLists.txt', '.gitmodules', '.github/workflows/keymapper-integration.yml']
+  pull_request:
+    branches: [dev]
+    paths: ['QtScrcpy/**', 'tests/**', 'ci/**', 'config/**', 'keymap/**', 'CMakeLists.txt', '.gitmodules', '.github/workflows/keymapper-integration.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   windows:
-    if: github.repository == 'gitlid/QtScrcpy' && github.ref == 'refs/heads/feature/scrcpy-keymapper'
+    if: github.repository == 'gitlid/QtScrcpy'
     runs-on: windows-2022
     timeout-minutes: 35
     env:
@@ -61,7 +65,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $name='QtScrcpy-keymapper-0.3.0-rc.1-win64'
+          $baseVersion=(Get-Content 'QtScrcpy/appversion' -Raw).Trim()
+          if($baseVersion -notmatch '^\d+\.\d+\.\d+$'){throw 'Invalid application version'}
+          $version="$baseVersion-rc.1"
+          $name="QtScrcpy-keymapper-$version-win64"
           $package=Join-Path $PWD "dist/$name"
           New-Item $package -ItemType Directory -Force | Out-Null
           Copy-Item 'output/x64/RelWithDebInfo/*' $package -Recurse
@@ -106,10 +113,10 @@ jobs:
           try {
             $env:PATH="$package;$env:WINDIR/System32;$env:WINDIR"
             $env:QSC_KEYMAPPER_SCREENSHOT=Join-Path $PWD 'build-keymapper/portable-editor.png'
-            $p=Start-Process $testExe -WorkingDirectory $package -PassThru -RedirectStandardOutput (Join-Path $PWD 'build-keymapper/portable-editor.stdout.log') -RedirectStandardError (Join-Path $PWD 'build-keymapper/portable-editor.stderr.log')
+            $p=Start-Process $testExe -WorkingDirectory $package -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $PWD 'build-keymapper/portable-editor.stdout.log') -RedirectStandardError (Join-Path $PWD 'build-keymapper/portable-editor.stderr.log')
             if(!$p.WaitForExit(45000)){Stop-Process -Id $p.Id;throw 'Portable editor timed out'}
             if($p.ExitCode -ne 0){throw "Portable editor failed: $($p.ExitCode)"}
-            $p=Start-Process (Join-Path $package 'QtScrcpy.exe') -WorkingDirectory $package -PassThru
+            $p=Start-Process (Join-Path $package 'QtScrcpy.exe') -WorkingDirectory $package -WindowStyle Hidden -PassThru
             Start-Sleep -Seconds 5
             if($p.HasExited){throw "Startup failed: $($p.ExitCode)"}
             Stop-Process -Id $p.Id
@@ -119,7 +126,7 @@ jobs:
             Remove-Item $testExe -ErrorAction SilentlyContinue
           }
           if(Get-ChildItem $package -Recurse -File | Where-Object {$_.Extension -match '^\.(ttf|otf|woff|woff2|ttc)$'}){throw 'Unexpected standalone font file in package'}
-          @{version='0.3.0-rc.1';mainCommit=$mainSha;coreCommit=$coreSha;editorCommit=$editorSha;runId=$env:GITHUB_RUN_ID;newFeaturesDeviceTested=$false;maximumPlaybackSpeed=8;audioChanged=$false;embeddedOfflineEditor=$true;portableEditorVerified=$true} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
+          @{version=$version;mainCommit=$mainSha;coreCommit=$coreSha;editorCommit=$editorSha;runId=$env:GITHUB_RUN_ID;newFeaturesDeviceTested=$false;maximumPlaybackSpeed=8;audioChanged=$false;embeddedOfflineEditor=$true;portableEditorVerified=$true} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
           $zip=Join-Path $PWD "dist/$name.zip"
           Compress-Archive $package $zip
           $hash=(Get-FileHash $zip -Algorithm SHA256).Hash
