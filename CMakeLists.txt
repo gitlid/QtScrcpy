@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.19 FATAL_ERROR)
 project(all)
-
 include(CTest)
 add_subdirectory(QtScrcpy)
+target_sources(QtScrcpy PRIVATE QtScrcpy/ui/keymapeditor.cpp QtScrcpy/ui/keymapeditor.h QtScrcpy/ui/keymapdocument.h QtScrcpy/ui/macroexecutionoptions.h)
 if(BUILD_TESTING AND QSC_BUILD_ACTION_MACRO_TESTS)
     add_subdirectory(tests)
 endif()
