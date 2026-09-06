@@ -2,13 +2,13 @@ name: Keymap V2 Check
 on:
   push:
     branches: [feature/keymap-macro-v2]
-    paths: ['QtScrcpy/**', 'tests/**', 'CMakeLists.txt', 'ci/apply-mouse-binding-ui.py', '.github/workflows/keymap-v2-check.yml']
+    paths: ['QtScrcpy/**', 'tests/**', 'CMakeLists.txt', '.github/workflows/keymap-v2-check.yml']
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: keymap-v2-check
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   windows:
     if: github.repository == 'gitlid/QtScrcpy' && github.ref == 'refs/heads/feature/keymap-macro-v2'
@@ -23,24 +23,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          persist-credentials: false
       - uses: jurplel/install-qt-action@v4.1.1
         with:
           version: '5.15.2'
           arch: win64_msvc2019_64
           cache: true
-      - name: Apply checked mouse binding UI changes
-        shell: bash
-        run: |
-          set -euo pipefail
-          python ci/apply-mouse-binding-ui.py
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('QtScrcpy/ui/actionmacrodialog.cpp')
-          text = p.read_text(encoding='utf-8')
-          p.write_text(text.replace('Action Macro 0.2.0-rc.1', 'Action Macro 0.2.0-rc.2'), encoding='utf-8', newline='\n')
-          PY
-          git diff --check
-      - name: Configure and build
+      - name: Configure and build committed sources
         shell: pwsh
         run: |
           cmake -S . -B build-v2 -G 'Visual Studio 17 2022' -A x64 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DQSC_BUILD_ACTION_MACRO_TESTS=ON
@@ -56,16 +45,15 @@ jobs:
           $env:QSC_MOUSE_SCREENSHOT=Join-Path $PWD 'build-v2/mouse-binding-editor.png'
           ctest --test-dir build-v2 -C RelWithDebInfo --output-on-failure --output-junit results.xml --timeout 60
           if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
-      - name: Commit verified UI changes only to the feature branch
-        shell: bash
+          git rev-parse HEAD | Set-Content tested-commit.txt
+      - name: Verify editor with native Windows rendering
+        shell: pwsh
         run: |
-          set -euo pipefail
-          git add QtScrcpy/ui/keymapeditor.cpp QtScrcpy/ui/keymapdocument.h QtScrcpy/ui/videoform.cpp QtScrcpy/ui/actionmacrodialog.cpp tests/CMakeLists.txt
-          if ! git diff --cached --quiet; then
-            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: integrate tested mouse and side-button mapping editor for RC2'
-            git push origin HEAD:refs/heads/feature/keymap-macro-v2
-          fi
-          git rev-parse HEAD > tested-commit.txt
+          $env:PATH="$(Join-Path $PWD 'output/x64/RelWithDebInfo');$env:PATH"
+          $env:QT_QPA_PLATFORM='windows'
+          $env:QSC_MOUSE_SCREENSHOT=Join-Path $PWD 'build-v2/mouse-binding-editor-native.png'
+          & 'build-v2/tests/RelWithDebInfo/mousebinding_ui_tests.exe' editor_roundtrip
+          if ($LASTEXITCODE -ne 0) { throw 'Native editor check failed' }
       - name: Package portable Windows candidate
         shell: pwsh
         run: |
@@ -79,6 +67,13 @@ jobs:
           Copy-Item 'QtScrcpy/QtScrcpyCore/LICENSE' (Join-Path $package 'LICENSE-QtScrcpyCore')
           Copy-Item 'docs/keymap-macro-v2.zh-CN.md' (Join-Path $package 'README-v2.zh-CN.md')
           Copy-Item 'docs/mouse-mapping.zh-CN.md' (Join-Path $package 'README-mouse.zh-CN.md')
+          # Preserve CRLF for distributed batch files as in previous Windows packages.
+          # This changes only packaging line endings, never the audio script logic.
+          Get-ChildItem $package -Filter '*.bat' -File -Recurse | ForEach-Object {
+            $text=[IO.File]::ReadAllText($_.FullName)
+            $text=$text.Replace("`r`n","`n").Replace("`n","`r`n")
+            [IO.File]::WriteAllText($_.FullName,$text,[Text.UTF8Encoding]::new($false))
+          }
           Get-ChildItem $package -Include '*.lib','*.pdb','*.exp' -Recurse | Remove-Item
           windeployqt --release --no-translations (Join-Path $package 'QtScrcpy.exe')
           if ($LASTEXITCODE -ne 0) { throw 'Deploy failed' }
@@ -118,5 +113,5 @@ jobs:
             build-v2/Testing/Temporary/*.log
             build-v2/results.xml
             build-v2/editor-test.png
-            build-v2/mouse-binding-editor.png
+            build-v2/mouse-binding-editor*.png
             tested-commit.txt
