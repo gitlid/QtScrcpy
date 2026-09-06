@@ -260,6 +260,18 @@ void VideoForm::installShortcut()
 {
     QShortcut *shortcut = nullptr;
 
+    // Emergency stop remains available even when a game keymap has grabbed
+    // the cursor. It also ends an accidental in-progress recording.
+    shortcut = new QShortcut(QKeySequence("Ctrl+Shift+X"), this);
+    shortcut->setAutoRepeat(false);
+    connect(shortcut, &QShortcut::activated, this, [this]() {
+        auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+        if (device) {
+            device->stopActionPlayback();
+            device->stopActionRecording();
+        }
+    });
+
     // switchFullScreen
     shortcut = new QShortcut(QKeySequence("Ctrl+f"), this);
     shortcut->setAutoRepeat(false);

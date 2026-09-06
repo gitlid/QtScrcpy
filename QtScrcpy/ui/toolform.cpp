@@ -3,6 +3,7 @@
 #include <QMouseEvent>
 #include <QShowEvent>
 
+#include "actionmacrodialog.h"
 #include "iconhelper.h"
 #include "toolform.h"
 #include "ui_toolform.h"
@@ -56,6 +57,7 @@ void ToolForm::updateCameraMode()
     ui->homeBtn->setVisible(!camera);
     ui->returnBtn->setVisible(!camera);
     ui->clipboardBtn->setVisible(!camera);
+    ui->actionMacroBtn->setVisible(!camera);
     ui->cameraTorchBtn->setVisible(camera);
     ui->cameraZoomOutBtn->setVisible(camera);
     ui->cameraZoomInBtn->setVisible(camera);
@@ -81,6 +83,7 @@ void ToolForm::initStyle()
     IconHelper::Instance()->SetIcon(ui->touchBtn, QChar(0xf111), 15);
     IconHelper::Instance()->SetIcon(ui->groupControlBtn, QChar(0xf0c0), 15);
     IconHelper::Instance()->SetIcon(ui->clipboardBtn, QChar(0xf0c5), 15);
+    IconHelper::Instance()->SetIcon(ui->actionMacroBtn, QChar(0xf144), 15);
     IconHelper::Instance()->SetIcon(ui->cameraTorchBtn, QChar(0xf0eb), 15);
     IconHelper::Instance()->SetIcon(ui->cameraZoomOutBtn, QChar(0xf010), 15);
     IconHelper::Instance()->SetIcon(ui->cameraZoomInBtn, QChar(0xf00e), 15);
@@ -314,4 +317,18 @@ void ToolForm::on_clipboardBtn_clicked()
         return;
     }
     device->requestDeviceClipboard();
+}
+
+void ToolForm::on_actionMacroBtn_clicked()
+{
+    auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+    if (!device || device->isCameraMode()) {
+        return;
+    }
+    if (!m_actionMacroDialog) {
+        m_actionMacroDialog = new ActionMacroDialog(m_serial, this);
+    }
+    m_actionMacroDialog->show();
+    m_actionMacroDialog->raise();
+    m_actionMacroDialog->activateWindow();
 }

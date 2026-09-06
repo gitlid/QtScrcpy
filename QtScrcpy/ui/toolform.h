@@ -13,6 +13,7 @@ namespace Ui
 }
 
 class Device;
+class ActionMacroDialog;
 class ToolForm : public MagneticWidget
 {
     Q_OBJECT
@@ -53,6 +54,7 @@ private slots:
     void on_groupControlBtn_clicked();
     void on_openScreenBtn_clicked();
     void on_clipboardBtn_clicked();
+    void on_actionMacroBtn_clicked();
 
 private:
     void initStyle();
@@ -66,6 +68,7 @@ private:
     bool m_showTouch = false;
     bool m_cameraTorch = false;
     bool m_isHost = false;
+    QPointer<ActionMacroDialog> m_actionMacroDialog;
 };
 
 #endif // TOOLFORM_H
