@@ -1,0 +1,21 @@
+/* Offline integration: upstream canvas nodes, no font downloads. */
+.integration-bar {padding:8px 16px;background:var(--bs-tertiary-bg);border-bottom:1px solid var(--bs-border-color);font-size:14px}
+.integration-bar label {display:block;font-weight:600;margin-bottom:4px}
+#integrationStatus {display:block;margin-bottom:5px;color:var(--bs-secondary-color)}
+#mouseBindings {display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+#mouseBindings button {min-width:52px}
+.footer {padding:3px;font-size:11px}
+.bi {font-style:normal;display:inline-block;min-width:1em;text-align:center}
+.bi::before {content:'◇'}
+.bi-keyboard::before {content:'⌨'}
+.bi-mouse::before {content:'◉'}
+.bi-cursor::before,.bi-cursor-fill::before {content:'➤'}
+.bi-trash3::before,.bi-trash::before {content:'×'}
+.bi-sun-fill::before {content:'☀'}
+.bi-moon-fill::before {content:'☾'}
+.bi-chevron-down::before {content:'⌄'}
+.bi-chevron-up::before {content:'⌃'}
+.bi-arrows-move::before,.bi-joystick::before {content:'✥'}
+.bi-heart-fill::before {content:'♥'}
+#languageSelector .fi {display:none}
+.switch-key-input {min-width:100px}
