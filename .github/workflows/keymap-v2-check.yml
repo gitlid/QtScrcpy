@@ -2,47 +2,75 @@ name: Keymap V2 Check
 on:
   push:
     branches: [feature/keymap-macro-v2]
-    paths: ['QtScrcpy/**', 'tests/**', 'CMakeLists.txt', '.github/workflows/keymap-v2-check.yml']
+    paths: ['QtScrcpy/**', 'tests/**', 'CMakeLists.txt', 'ci/apply-mouse-binding-ui.py', '.github/workflows/keymap-v2-check.yml']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: keymap-v2-check
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   windows:
+    if: github.repository == 'gitlid/QtScrcpy' && github.ref == 'refs/heads/feature/keymap-macro-v2'
     runs-on: windows-2022
     timeout-minutes: 25
+    env:
+      PYTHONUTF8: '1'
     steps:
+      - name: Keep source line endings stable on the build runner
+        shell: bash
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          persist-credentials: false
       - uses: jurplel/install-qt-action@v4.1.1
         with:
           version: '5.15.2'
           arch: win64_msvc2019_64
           cache: true
-      - name: Configure and build committed sources
+      - name: Apply checked mouse binding UI changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python ci/apply-mouse-binding-ui.py
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('QtScrcpy/ui/actionmacrodialog.cpp')
+          text = p.read_text(encoding='utf-8')
+          p.write_text(text.replace('Action Macro 0.2.0-rc.1', 'Action Macro 0.2.0-rc.2'), encoding='utf-8', newline='\n')
+          PY
+          git diff --check
+      - name: Configure and build
         shell: pwsh
         run: |
           cmake -S . -B build-v2 -G 'Visual Studio 17 2022' -A x64 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DQSC_BUILD_ACTION_MACRO_TESTS=ON
           if ($LASTEXITCODE -ne 0) { throw 'Configure failed' }
           cmake --build build-v2 --config RelWithDebInfo --parallel 4
           if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
-      - name: Macro, UHID and UI tests
+      - name: Macro, UHID, mouse and UI tests
         shell: pwsh
         run: |
           $env:PATH="$(Join-Path $PWD 'output/x64/RelWithDebInfo');$env:PATH"
           $env:QT_QPA_PLATFORM='offscreen'
           $env:QSC_TEST_SCREENSHOT=Join-Path $PWD 'build-v2/editor-test.png'
+          $env:QSC_MOUSE_SCREENSHOT=Join-Path $PWD 'build-v2/mouse-binding-editor.png'
           ctest --test-dir build-v2 -C RelWithDebInfo --output-on-failure --output-junit results.xml --timeout 60
           if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+      - name: Commit verified UI changes only to the feature branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add QtScrcpy/ui/keymapeditor.cpp QtScrcpy/ui/keymapdocument.h QtScrcpy/ui/videoform.cpp QtScrcpy/ui/actionmacrodialog.cpp tests/CMakeLists.txt
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: integrate tested mouse and side-button mapping editor for RC2'
+            git push origin HEAD:refs/heads/feature/keymap-macro-v2
+          fi
+          git rev-parse HEAD > tested-commit.txt
       - name: Package portable Windows candidate
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $name='QtScrcpy-keymap-macro-0.2.0-rc.1-win64'
+          $name='QtScrcpy-keymap-macro-0.2.0-rc.2-win64'
           $package=Join-Path $PWD "dist/$name"
           New-Item $package -ItemType Directory -Force | Out-Null
           Copy-Item 'output/x64/RelWithDebInfo/*' $package -Recurse
@@ -50,6 +78,7 @@ jobs:
           Copy-Item 'LICENSE' (Join-Path $package 'LICENSE-QtScrcpy')
           Copy-Item 'QtScrcpy/QtScrcpyCore/LICENSE' (Join-Path $package 'LICENSE-QtScrcpyCore')
           Copy-Item 'docs/keymap-macro-v2.zh-CN.md' (Join-Path $package 'README-v2.zh-CN.md')
+          Copy-Item 'docs/mouse-mapping.zh-CN.md' (Join-Path $package 'README-mouse.zh-CN.md')
           Get-ChildItem $package -Include '*.lib','*.pdb','*.exp' -Recurse | Remove-Item
           windeployqt --release --no-translations (Join-Path $package 'QtScrcpy.exe')
           if ($LASTEXITCODE -ne 0) { throw 'Deploy failed' }
@@ -65,7 +94,7 @@ jobs:
           }
           $mainSha=git rev-parse HEAD
           $coreSha=git -C QtScrcpy/QtScrcpyCore rev-parse HEAD
-          @{version='0.2.0-rc.1';mainCommit=$mainSha;coreCommit=$coreSha;runId=$env:GITHUB_RUN_ID;newFeaturesDeviceTested=$false;maximumPlaybackSpeed=8;audioChanged=$false} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
+          @{version='0.2.0-rc.2';mainCommit=$mainSha;coreCommit=$coreSha;runId=$env:GITHUB_RUN_ID;newFeaturesDeviceTested=$false;maximumPlaybackSpeed=8;mouseButtonMapping=$true;audioChanged=$false} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
           $p=Start-Process (Join-Path $package 'QtScrcpy.exe') -WorkingDirectory $package -PassThru
           Start-Sleep -Seconds 5
           if($p.HasExited){throw "Startup failed: $($p.ExitCode)"}
@@ -89,3 +118,5 @@ jobs:
             build-v2/Testing/Temporary/*.log
             build-v2/results.xml
             build-v2/editor-test.png
+            build-v2/mouse-binding-editor.png
+            tested-commit.txt
