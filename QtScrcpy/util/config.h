@@ -15,6 +15,7 @@ struct UserBootConfig
     bool recordScreen     = false;
     bool recordBackground = false;
     bool reverseConnect   = true;
+    bool uhidKeyboard     = false;
     bool showFPS          = false;
     bool windowOnTop      = false;
     bool autoOffScreen    = false;

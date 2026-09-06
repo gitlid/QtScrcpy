@@ -22,3 +22,19 @@ foreach(case_name IN ITEMS video_required stop_clears_queue transport_failure pl
     add_test(NAME integration_${case_name} COMMAND actionmacro_integration ${case_name})
     set_tests_properties(integration_${case_name} PROPERTIES TIMEOUT 15)
 endforeach()
+
+add_executable(uhid_integration uhid_integration.cpp)
+target_include_directories(uhid_integration PRIVATE
+    ${CORE}/src/common ${CORE}/src/device/android ${CORE}/src/device/controller
+    ${CORE}/src/device/controller/inputconvert ${CORE}/src/device/controller/receiver)
+target_link_libraries(uhid_integration PRIVATE
+    QtScrcpyCore Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
+foreach(case_name IN ITEMS wire mapping rollover schema feedback lifecycle macro emergency game_mapping)
+    add_test(NAME uhid_${case_name} COMMAND uhid_integration ${case_name})
+    set_tests_properties(uhid_${case_name} PROPERTIES TIMEOUT 15)
+endforeach()
+
+if(MSVC)
+    target_compile_options(uhid_integration PRIVATE /utf-8 /W3 /WX)
+    target_compile_options(actionmacro_integration PRIVATE /utf-8)
+endif()

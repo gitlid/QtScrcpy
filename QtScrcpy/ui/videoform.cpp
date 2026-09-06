@@ -868,6 +868,32 @@ void VideoForm::wheelEvent(QWheelEvent *event)
     }
 }
 
+bool VideoForm::event(QEvent *event)
+{
+    auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+    if (device && (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::FocusOut)) {
+        device->releaseKeyboard();
+    }
+    if (device && device->isUhidKeyboardEnabled()) {
+        if (event->type() == QEvent::ShortcutOverride) {
+            // The application-wide emergency-stop filter runs before this.
+            // Ctrl+C/V/A and similar chords belong to the phone in HID mode.
+            event->accept();
+            return true;
+        }
+        if (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease) {
+            auto *key = static_cast<QKeyEvent *>(event);
+            if (key->key() == Qt::Key_Tab || key->key() == Qt::Key_Backtab) {
+                if (event->type() == QEvent::KeyPress) { keyPressEvent(key); }
+                else { keyReleaseEvent(key); }
+                event->accept();
+                return true;
+            }
+        }
+    }
+    return QWidget::event(event);
+}
+
 void VideoForm::keyPressEvent(QKeyEvent *event)
 {
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);

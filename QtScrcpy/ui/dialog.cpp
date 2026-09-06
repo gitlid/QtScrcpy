@@ -260,6 +260,10 @@ void Dialog::initUI()
         connect(ui->devicePortEdt->lineEdit(), &QWidget::customContextMenuRequested,
                 this, &Dialog::showPortEditMenu);
     }
+    connect(ui->keyboardSettingsBtn, &QPushButton::clicked, this, [this]() {
+        if (checkAdbRun() || ui->serialBox->currentText().isEmpty()) { return; }
+        m_adb.execute(ui->serialBox->currentText(), {"shell", "am", "start", "-a", "android.settings.HARD_KEYBOARD_SETTINGS"});
+    });
     initAdvancedDisplayUi();
 
     auto *configTabs = new QTabWidget(ui->rightWidget);
@@ -423,6 +427,7 @@ void Dialog::updateBootConfig(bool toView)
         ui->recordScreenCheck->setChecked(config.recordScreen);
         ui->notDisplayCheck->setChecked(config.recordBackground);
         ui->useReverseCheck->setChecked(config.reverseConnect);
+        ui->keyboardModeBox->setCurrentIndex(config.uhidKeyboard ? 1 : 0);
         ui->fpsCheck->setChecked(config.showFPS);
         ui->alwaysTopCheck->setChecked(config.windowOnTop);
         ui->closeScreenCheck->setChecked(config.autoOffScreen);
@@ -465,6 +470,7 @@ void Dialog::updateBootConfig(bool toView)
         config.recordScreen = ui->recordScreenCheck->isChecked();
         config.recordBackground = ui->notDisplayCheck->isChecked();
         config.reverseConnect = ui->useReverseCheck->isChecked();
+        config.uhidKeyboard = ui->keyboardModeBox->currentIndex() == 1;
         config.showFPS = ui->fpsCheck->isChecked();
         config.windowOnTop = ui->alwaysTopCheck->isChecked();
         config.autoOffScreen = ui->closeScreenCheck->isChecked();
@@ -594,6 +600,7 @@ void Dialog::updateVideoSourceUi()
     ui->closeScreenCheck->setEnabled(!camera);
     ui->stayAwakeCheck->setEnabled(!camera);
     ui->gameBox->setEnabled(!camera);
+    ui->keyboardConfigWidget->setEnabled(!camera);
     ui->refreshGameScriptBtn->setEnabled(!camera);
     ui->applyScriptBtn->setEnabled(!camera);
     ui->installSndcpyBtn->setEnabled(!camera);
@@ -648,6 +655,7 @@ void Dialog::on_startServerBtn_clicked()
     params.serverRemotePath = Config::getInstance().getServerPath();
     params.pushFilePath = Config::getInstance().getPushFilePath();
     params.gameScript = camera ? QString() : getGameScript(ui->gameBox->currentText());
+    params.uhidKeyboard = !camera && ui->keyboardModeBox->currentIndex() == 1;
     params.logLevel = Config::getInstance().getLogLevel();
     // Apply an encoder preset (when a preset mode is selected) or the ini default.
     const int codecModeIndex = ui->codecModeBox->currentIndex();

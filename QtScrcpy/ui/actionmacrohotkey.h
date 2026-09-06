@@ -40,6 +40,7 @@ public:
         for (const auto &device : devices) {
             if (device) { device->stopActionPlayback(); }
             if (device) { device->stopActionRecording(); }
+            if (device) { device->releaseKeyboard(); }
         }
         for (int i = m_devices.size() - 1; i >= 0; --i) {
             if (!m_devices.at(i)) { m_devices.remove(i); }

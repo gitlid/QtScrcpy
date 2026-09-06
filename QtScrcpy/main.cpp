@@ -2,9 +2,13 @@
 #include <QColor>
 #include <QDebug>
 #include <QFile>
+#include <QDir>
+#include <QFileInfo>
+#ifdef Q_OS_WIN32
+#include <qt_windows.h>
+#endif
 #include <QPalette>
 #ifdef Q_OS_LINUX
-#include <QFileInfo>
 #include <QIcon>
 #endif
 #include <QSurfaceFormat>
@@ -29,6 +33,13 @@ int main(int argc, char *argv[])
 {
     // set env
 #ifdef Q_OS_WIN32
+    // Config is read before QApplication exists. Resolve portable resources
+    // from the executable even when a shortcut or launcher uses another cwd.
+    wchar_t executablePath[32768];
+    const DWORD pathLength = GetModuleFileNameW(nullptr, executablePath, 32768);
+    if (pathLength > 0 && pathLength < 32768) {
+        QDir::setCurrent(QFileInfo(QString::fromWCharArray(executablePath, int(pathLength))).absolutePath());
+    }
     qputenv("QTSCRCPY_ADB_PATH", "../../../QtScrcpy/QtScrcpyCore/src/third_party/adb/win/adb.exe");
     qputenv("QTSCRCPY_SERVER_PATH", "../../../QtScrcpy/QtScrcpyCore/src/third_party/scrcpy-server");
     qputenv("QTSCRCPY_KEYMAP_PATH", "../../../keymap");
