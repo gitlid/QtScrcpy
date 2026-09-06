@@ -25,6 +25,7 @@
 #include "mousetap/mousetap.h"
 #include "ui_videoform.h"
 #include "videoform.h"
+#include "inputbinding.h"
 
 #ifdef Q_OS_MACOS
 #include "metalvideowindow.h"
@@ -696,14 +697,16 @@ void VideoForm::mousePressEvent(QMouseEvent *event)
 {
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (event->button() == Qt::MiddleButton) {
-        if (device && !device->isCurrentCustomKeymap()) {
+        if (device && !device->isCurrentCustomKeymap()
+            && !InputBinding::isMouseSwitch(device->currentKeymapScript(), event->button())) {
             device->postGoHome();
             return;
         }
     }
 
     if (event->button() == Qt::RightButton) {
-        if (device && !device->isCurrentCustomKeymap()) {
+        if (device && !device->isCurrentCustomKeymap()
+            && !InputBinding::isMouseSwitch(device->currentKeymapScript(), event->button())) {
             device->postGoBack();
             return;
         }
@@ -817,7 +820,8 @@ void VideoForm::mouseDoubleClickEvent(QMouseEvent *event)
         }
     }
 
-    if (event->button() == Qt::RightButton && device && !device->isCurrentCustomKeymap()) {
+    if (event->button() == Qt::RightButton && device && !device->isCurrentCustomKeymap()
+        && !InputBinding::isMouseSwitch(device->currentKeymapScript(), event->button())) {
         emit device->postBackOrScreenOn(event->type() == QEvent::MouseButtonPress);
     }
 

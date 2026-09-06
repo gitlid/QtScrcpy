@@ -7,10 +7,11 @@
 #include <QSet>
 #include <QPointF>
 #include <cmath>
+#include "inputbinding.h"
 class KeymapDocument {
 public:
  QJsonObject root{{"switchKey","Key_QuoteLeft"},{"keyMapNodes",QJsonArray()}};
- static bool binding(const QString&s){bool ok=false;QMetaEnum::fromType<Qt::Key>().keyToValue(s.toLatin1().constData(),&ok);if(ok&&s!="Key_unknown")return true;QMetaEnum::fromType<Qt::MouseButtons>().keyToValue(s.toLatin1().constData(),&ok);return ok&&s!="NoButton"&&s!="AllButtons";}
+ static bool binding(const QString&s){return !InputBinding::identity(s).isEmpty();}
  static QJsonObject pos(double x,double y){return {{"x",x},{"y",y}};}
  static bool point(const QJsonObject&n,const char*field){const auto p=n.value(field);if(!p.isObject())return false;for(const char*k:{"x","y"}){auto v=p.toObject().value(k);double d=v.toDouble(-1);if(!v.isDouble()||!std::isfinite(d)||d<0||d>=1)return false;}return true;}
  static bool number(const QJsonObject&n,const char*k,double lo,double hi){auto v=n.value(k);double d=v.toDouble(-1);return v.isDouble()&&std::isfinite(d)&&d>=lo&&d<=hi;}
@@ -18,8 +19,8 @@ public:
   auto fail=[&](const QString&s){if(error)*error=s;return false;};
   if(!o.value("switchKey").isString()||!binding(o.value("switchKey").toString()))return fail(QStringLiteral("切换按键无效。"));
   if(!o.value("keyMapNodes").isArray()||o["keyMapNodes"].toArray().size()>500)return fail(QStringLiteral("映射数量无效（上限 500）。"));
-  QSet<QString>keys{o["switchKey"].toString()};
-  auto bind=[&](const QJsonObject&n,const char*k){auto v=n.value(k);QString s=v.toString();if(!v.isString()||!binding(s)||keys.contains(s))return false;keys.insert(s);return true;};
+  QSet<QString>keys{InputBinding::identity(o["switchKey"].toString())};
+  auto bind=[&](const QJsonObject&n,const char*k){auto v=n.value(k);QString s=InputBinding::identity(v.toString());if(!v.isString()||s.isEmpty()||keys.contains(s))return false;keys.insert(s);return true;};
   for(const auto&v:o["keyMapNodes"].toArray()){
    if(!v.isObject())return fail(QStringLiteral("映射必须为对象。"));auto n=v.toObject();const QString type=n["type"].toString();
    if(type=="KMT_STEER_WHEEL"){

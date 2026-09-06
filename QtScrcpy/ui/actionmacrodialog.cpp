@@ -14,7 +14,7 @@
 
 ActionMacroDialog::ActionMacroDialog(const QString &serial,QWidget *parent):QDialog(parent),m_serial(serial)
 {
-    setWindowTitle(tr("Action Macro 0.2.0-rc.1 - %1").arg(serial));
+    setWindowTitle(tr("Action Macro 0.2.0-rc.2 - %1").arg(serial));
     setAttribute(Qt::WA_DeleteOnClose,false);
     resize(580,700);
     m_statusLabel=new QLabel(this);

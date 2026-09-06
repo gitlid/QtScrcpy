@@ -1,4 +1,5 @@
 #include "keymapeditor.h"
+#include "inputbindingfield.h"
 #include <QDir>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -19,15 +20,6 @@
 #include <QCoreApplication>
 #include <functional>
 namespace {
-class KeyField:public QLineEdit {
-public:using QLineEdit::QLineEdit;
-protected:
- bool event(QEvent*e)override{
-  if(e->type()==QEvent::ShortcutOverride){e->accept();return true;}
-  if(e->type()==QEvent::KeyPress){auto*k=static_cast<QKeyEvent*>(e);if(k->isAutoRepeat())return true;const char*name=QMetaEnum::fromType<Qt::Key>().valueToKey(k->key());if(name){setText(QString::fromLatin1(name));emit editingFinished();}return true;}
-  return QLineEdit::event(e);
- }
-};
 class Marker:public QGraphicsEllipseItem {
 public:
  std::function<void(QPointF)>changed;
@@ -43,19 +35,19 @@ protected:
 };
 }
 KeymapEditor::KeymapEditor(const QPixmap&frame,const QString&script,QWidget*parent):QDialog(parent),m_frame(frame){
- setWindowTitle(tr("可视化按键设置 — 点击、WASD、滑动"));resize(1050,760);setWindowModality(Qt::ApplicationModal);m_frame.setDevicePixelRatio(1);
+ setWindowTitle(tr("可视化键鼠设置 — 点击、WASD、滑动"));resize(1050,760);setWindowModality(Qt::ApplicationModal);m_frame.setDevicePixelRatio(1);
  m_scene=new QGraphicsScene(this);m_view=new QGraphicsView(m_scene,this);m_view->setMinimumSize(450,400);
  m_list=new QListWidget(this);m_list->setObjectName("mappingNodes");auto*right=new QVBoxLayout;right->addWidget(m_list);auto*row=new QHBoxLayout;
  for(const auto&p:QVector<QPair<QString,QString>>{{tr("点击"),"KMT_CLICK"},{tr("WASD"),"KMT_STEER_WHEEL"},{tr("滑动"),"KMT_DRAG"}}){auto*b=new QPushButton(p.first,this);row->addWidget(b);connect(b,&QPushButton::clicked,this,[this,p](){int i=m_document.add(p.second);m_dirty=true;rebuild();m_list->setCurrentRow(i);});}
  right->addLayout(row);auto*remove=new QPushButton(tr("删除选中控件"),this);right->addWidget(remove);
  connect(remove,&QPushButton::clicked,this,[this](){int i=m_list->currentRow();auto a=m_document.nodes();if(i<0||i>=a.size())return;a.removeAt(i);m_document.root["keyMapNodes"]=a;m_dirty=true;rebuild();});
- auto*form=new QFormLayout;m_switch=new KeyField(this);m_switch->setObjectName("mappingSwitchKey");form->addRow(tr("开关映射键"),m_switch);
- for(int i=0;i<4;++i){auto*k=new KeyField(this);m_keys.append(k);form->addRow(i==0?tr("按键／左"):i==1?tr("右"):i==2?tr("上"):tr("下"),k);connect(k,&QLineEdit::editingFinished,this,&KeymapEditor::updateNode);}
+ auto*form=new QFormLayout;m_switch=new InputBindingField(this);m_switch->setObjectName("mappingSwitchKey");form->addRow(tr("开关映射键"),m_switch);
+ for(int i=0;i<4;++i){auto*k=new InputBindingField(this);k->setObjectName(QString("mappingBinding%1").arg(i));m_keys.append(k);form->addRow(i==0?tr("按键／左"):i==1?tr("右"):i==2?tr("上"):tr("下"),k);connect(k,&QLineEdit::editingFinished,this,&KeymapEditor::updateNode);}
  connect(m_switch,&QLineEdit::editingFinished,this,[this](){m_document.root["switchKey"]=m_switch->text();m_dirty=true;});
  m_range=new QDoubleSpinBox(this);m_range->setRange(.001,.4);m_range->setDecimals(3);m_range->setSingleStep(.01);form->addRow(tr("摇杆范围（相对宽高）"),m_range);
  connect(m_range,QOverload<double>::of(&QDoubleSpinBox::valueChanged),this,[this](double){updateNode();});right->addLayout(form);
  m_error=new QLabel(this);m_error->setWordWrap(true);m_error->setTextFormat(Qt::PlainText);right->addWidget(m_error);
- auto*hint=new QLabel(tr("点击输入框后按键绑定；拖动画面上的圆点调整位置。滑动有起点和终点。\n编辑画面为快照，不向手机发送点击。导入的其他映射保留原始字段。\n保存并应用后，回到投屏按开关映射键启用；再次按下返回普通/UHID 输入。"),this);hint->setWordWrap(true);right->addWidget(hint);
+ auto*hint=new QLabel(tr("绑定框右侧箭头可选鼠标左键、右键、中键和侧键 X1 / X2；也可在框内按键或按侧键绑定。\n单击绑定框只选中，不绑定左键。拖动画面圆点调整位置；滑动有起点和终点。\n编辑画面为快照，不向手机发送点击。导入的其他映射保留原始字段。\n保存并应用后，回到投屏按开关映射键启用；再次按下返回普通/UHID 输入。"),this);hint->setWordWrap(true);right->addWidget(hint);
  auto*buttons=new QHBoxLayout;
  for(const QString&s:{tr("导入"),tr("保存"),tr("保存并应用"),tr("取消")}){
   auto*b=new QPushButton(s,this);buttons->addWidget(b);
@@ -70,7 +62,7 @@ KeymapEditor::KeymapEditor(const QPixmap&frame,const QString&script,QWidget*pare
  m_switch->setText(m_document.root["switchKey"].toString());rebuild();
 }
 void KeymapEditor::rebuild(){
- int selected=m_list->currentRow();m_updating=true;m_list->clear();for(const auto&v:m_document.nodes()){auto n=v.toObject();m_list->addItem(n["type"].toString()+"  "+n["key"].toString());}
+ int selected=m_list->currentRow();m_updating=true;m_list->clear();for(const auto&v:m_document.nodes()){auto n=v.toObject();m_list->addItem(n["type"].toString()+"  "+InputBinding::label(n["key"].toString()));}
  m_updating=false;if(m_list->count())m_list->setCurrentRow(qBound(0,selected,m_list->count()-1));else properties();
 }
 void KeymapEditor::properties(){
@@ -83,7 +75,7 @@ void KeymapEditor::properties(){
   item->setPos(p["x"].toDouble()*m_frame.width(),p["y"].toDouble()*m_frame.height());const QString f=field;
   item->changed=[this,index,f](QPointF pos){auto nodes=m_document.nodes();if(index<0||index>=nodes.size())return;auto obj=nodes[index].toObject();obj[f]=KeymapDocument::pos(pos.x()/m_frame.width(),pos.y()/m_frame.height());m_document.setNode(index,obj);m_dirty=true;};
  };
- if(wheel)marker("centerPos","WASD");else if(n["type"]=="KMT_DRAG"){marker("startPos",tr("起点"));marker("endPos",tr("终点"));}else marker("pos",n["key"].toString().remove("Key_"));
+ if(wheel)marker("centerPos","WASD");else if(n["type"]=="KMT_DRAG"){marker("startPos",tr("起点"));marker("endPos",tr("终点"));}else marker("pos",InputBinding::label(n["key"].toString()).remove("Key_"));
  m_view->fitInView(m_scene->sceneRect(),Qt::KeepAspectRatio);m_updating=false;
 }
 void KeymapEditor::updateNode(){
