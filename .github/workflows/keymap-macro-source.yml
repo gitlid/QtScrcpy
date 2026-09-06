@@ -1,0 +1,26 @@
+name: Keymap Macro Source Snapshot
+on:
+  push:
+    branches: [feature/keymap-macro-v2]
+    paths: ['.github/workflows/keymap-macro-source.yml']
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Package source without Git credentials or bundled binaries
+        run: |
+          git rev-parse HEAD > snapshot-main.txt
+          git -C QtScrcpy/QtScrcpyCore rev-parse HEAD > snapshot-core.txt
+          tar --exclude='.git' --exclude='./QtScrcpy/QtScrcpyCore/src/third_party' --exclude='./output' -czf "$RUNNER_TEMP/qtscrcpy-source.tar.gz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keymap-macro-source
+          path: ${{ runner.temp }}/qtscrcpy-source.tar.gz
+          retention-days: 7
