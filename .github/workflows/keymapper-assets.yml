@@ -1,0 +1,47 @@
+name: ScrcpyKeyMapper source inspection
+on:
+  push:
+    branches: [feature/keymap-macro-v2]
+    paths: [.github/workflows/keymapper-assets.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    if: github.repository == 'gitlid/QtScrcpy' && github.ref == 'refs/heads/feature/keymap-macro-v2'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: w4po/ScrcpyKeyMapper
+          ref: 022870e2caf905046c8e7502d4053bb5f171c1e4
+          path: upstream
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fetch exact editor dependencies and preserve npm integrity lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir deps
+          cd deps
+          printf '%s\n' '{"name":"qtscrcpy-offline-keymapper","version":"0.1.0","private":true,"dependencies":{"bootstrap":"5.3.3","konva":"9.2.3","esbuild":"0.25.0"}}' > package.json
+          npm install --ignore-scripts --no-audit --no-fund
+          cd ..
+          mkdir inspect
+          cp deps/package*.json inspect/
+          cp deps/node_modules/bootstrap/dist/css/bootstrap.min.css inspect/
+          cp deps/node_modules/bootstrap/dist/js/bootstrap.bundle.min.js inspect/
+          cp deps/node_modules/bootstrap/LICENSE inspect/LICENSE-bootstrap
+          cp deps/node_modules/konva/konva.min.js inspect/
+          cp deps/node_modules/konva/LICENSE inspect/LICENSE-konva
+          tar --exclude='.git' -czf inspect/upstream.tar.gz -C upstream .
+          sha256sum inspect/*.js inspect/*.css > inspect/dependency-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keymapper-source-inspection
+          path: inspect/
+          retention-days: 7
+          if-no-files-found: error
