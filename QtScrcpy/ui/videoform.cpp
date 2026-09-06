@@ -57,6 +57,7 @@ VideoForm::VideoForm(bool framelessWindow, bool skin, bool showToolbar, int deco
 
 VideoForm::~VideoForm()
 {
+    grabCursor(false);
     delete ui;
 }
 
@@ -645,8 +646,12 @@ void VideoForm::updateFPS(quint32 fps)
 
 void VideoForm::grabCursor(bool grab)
 {
-    QRect rc = getGrabCursorRect();
-    MouseTap::getInstance()->enableMouseEventTap(rc, grab);
+    if (grab && (!isVisible() || !isActiveWindow())) { return; }
+    const bool owned = m_mouseLookCursor.active();
+    m_mouseLookCursor.set(videoWidget(), grab);
+    if (grab || owned) {
+        MouseTap::getInstance()->enableMouseEventTap(getGrabCursorRect(), grab);
+    }
 }
 
 void VideoForm::onFrame(int width, int height, uint8_t *dataY, uint8_t *dataU, uint8_t *dataV, int linesizeY, int linesizeU, int linesizeV)
@@ -875,8 +880,17 @@ void VideoForm::wheelEvent(QWheelEvent *event)
 bool VideoForm::event(QEvent *event)
 {
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
-    if (device && (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::FocusOut)) {
-        device->releaseKeyboard();
+    if (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::FocusOut) {
+        const bool captured = m_mouseLookCursor.active();
+        grabCursor(false);
+        if (device) {
+            // Do not steal inputs from background macro playback.
+            if (captured && !device->isActionPlaying()) {
+                if (device->isActionRecording()) { device->pauseActionMacro(); }
+                else { device->prepareKeymapEditing(); }
+            }
+            device->releaseKeyboard();
+        }
     }
     if (device && device->isUhidKeyboardEnabled()) {
         if (event->type() == QEvent::ShortcutOverride) {
@@ -904,7 +918,8 @@ void VideoForm::keyPressEvent(QKeyEvent *event)
     if (!device) {
         return;
     }
-    if (Qt::Key_Escape == event->key() && !event->isAutoRepeat() && isFullScreen()) {
+    if (Qt::Key_Escape == event->key() && !event->isAutoRepeat() && isFullScreen()
+        && !device->isUhidKeyboardEnabled() && !device->isCurrentCustomKeymap()) {
         switchFullScreen();
     }
 
@@ -983,6 +998,7 @@ void VideoForm::resizeEvent(QResizeEvent *event)
 
 void VideoForm::closeEvent(QCloseEvent *event)
 {
+    grabCursor(false);
     Q_UNUSED(event)
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (!device) {

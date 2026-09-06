@@ -1,4 +1,6 @@
 #include <QApplication>
+#include <QCheckBox>
+#include "mouselookcursor.h"
 #include <QAction>
 #include <QContextMenuEvent>
 #include <QDebug>
@@ -76,13 +78,58 @@ bool toggleRouting() {
     }
     return !InputBinding::isMouseSwitch("{}",Qt::NoButton)&&!InputBinding::isMouseSwitch("broken",Qt::RightButton);
 }
+QJsonObject legacyLook() {
+    KeymapDocument d;d.add("KMT_CLICK");d.root.remove("mouseLookEnabled");
+    d.root["mouseMoveMap"]=QJsonObject{{"startPos",KeymapDocument::pos(.5,.5)},{"speedRatio",1.}};
+    return d.root;
+}
+bool lookDefault() {
+    QPixmap frame(400,800);frame.fill(Qt::darkGray);
+    KeymapEditor editor(frame,QString::fromUtf8(QJsonDocument(legacyLook()).toJson()));
+    auto *box=editor.findChild<QCheckBox*>("mouseLookEnabled");
+    auto r=QJsonDocument::fromJson(editor.script().toUtf8()).object();
+    return box&&box->isEnabled()&&box->isChecked()&&r["mouseLookEnabled"].isBool()&&r["mouseLookEnabled"].toBool()&&r.contains("mouseMoveMap");
+}
+bool lookRoundtrip() {
+    QPixmap frame(400,800);frame.fill(Qt::darkGray);
+    KeymapEditor editor(frame,QString::fromUtf8(QJsonDocument(legacyLook()).toJson()));
+    auto *box=editor.findChild<QCheckBox*>("mouseLookEnabled");if(!box)return false;
+    box->setChecked(true);KeymapDocument loaded;if(!loaded.parse(editor.script().toUtf8())||!loaded.root["mouseLookEnabled"].toBool())return false;
+    KeymapEditor next(frame,editor.script());auto *nextBox=next.findChild<QCheckBox*>("mouseLookEnabled");
+    if(!nextBox||!nextBox->isChecked())return false;nextBox->setChecked(false);
+    return loaded.parse(next.script().toUtf8())&&!loaded.root["mouseLookEnabled"].toBool()&&loaded.root.contains("mouseMoveMap");
+}
+bool lookValidation() {
+    auto r=legacyLook();r["mouseLookEnabled"]="true";if(KeymapDocument::validate(r))return false;
+    r["mouseLookEnabled"]=true;r.remove("mouseMoveMap");if(KeymapDocument::validate(r))return false;
+    KeymapDocument empty;QPixmap frame(400,800);frame.fill(Qt::darkGray);KeymapEditor editor(frame,QString::fromUtf8(QJsonDocument(empty.root).toJson()));
+    auto *box=editor.findChild<QCheckBox*>("mouseLookEnabled");return box&&!box->isEnabled()&&!box->isChecked();
+}
+bool cursorScope() {
+    QWidget video,other;other.setCursor(Qt::IBeamCursor);MouseLookCursor cursor;
+    cursor.set(&video,true);cursor.set(&video,true);
+    return cursor.active()&&video.cursor().shape()==Qt::BlankCursor&&other.cursor().shape()==Qt::IBeamCursor&&!QGuiApplication::overrideCursor();
+}
+bool cursorRestore() {
+    QWidget video;video.setCursor(Qt::CrossCursor);
+    {MouseLookCursor cursor;cursor.set(&video,true);cursor.set(&video,true);cursor.release();cursor.release();if(video.cursor().shape()!=Qt::CrossCursor)return false;cursor.set(&video,true);}
+    return video.cursor().shape()==Qt::CrossCursor&&!QGuiApplication::overrideCursor();
+}
+bool cursorDeleted() {
+    MouseLookCursor cursor;auto*video=new QWidget;cursor.set(video,true);delete video;cursor.release();
+    QWidget parent;parent.setCursor(Qt::IBeamCursor);QWidget replacement(&parent);
+    const bool own=replacement.testAttribute(Qt::WA_SetCursor);const auto shape=replacement.cursor().shape();
+    cursor.set(&replacement,true);cursor.release();return !cursor.active()&&replacement.testAttribute(Qt::WA_SetCursor)==own&&replacement.cursor().shape()==shape;
+}
 }
 int main(int argc,char **argv) {
     QApplication app(argc,argv);app.setQuitOnLastWindowClosed(false);
     const QVector<QPair<QString,std::function<bool()>>> tests{
         {"menu",menuButtons},{"direct",directButtons},{"left_focus",focusDoesNotBindLeft},{"keyboard",keyboardStillWorks},
         {"alias_conflict",aliasesConflict},{"invalid",invalidButtons},{"namespaces",deviceNamespaces},
-        {"editor_roundtrip",editorRoundtrip},{"toggle_routing",toggleRouting}
+        {"editor_roundtrip",editorRoundtrip},{"toggle_routing",toggleRouting},
+        {"look_default",lookDefault},{"look_roundtrip",lookRoundtrip},{"look_validation",lookValidation},
+        {"cursor_scope",cursorScope},{"cursor_restore",cursorRestore},{"cursor_deleted",cursorDeleted}
     };
     int ran=0,passed=0;for(const auto &t:tests){if(argc>1&&QString(argv[1])!=t.first)continue;++ran;bool ok=t.second();if(ok)++passed;qInfo()<<t.first<<(ok?"PASS":"FAIL");}
     return ran>0&&passed==ran?0:1;

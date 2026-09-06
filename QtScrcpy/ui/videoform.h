@@ -4,6 +4,7 @@
 #include <QPointer>
 #include <QTimer>
 #include <QWidget>
+#include "mouselookcursor.h"
 
 #include "../QtScrcpyCore/include/QtScrcpyCore.h"
 
@@ -97,6 +98,7 @@ private:
     QPoint m_dragPosition;
     float m_widthHeightRatio = 0.5f;
     bool m_skin = true;
+    MouseLookCursor m_mouseLookCursor;
     QPoint m_fullScreenBeforePos;
     QString m_serial;
     int m_decodeMode = 0;

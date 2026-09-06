@@ -2,6 +2,9 @@
 #include "actionmacrohotkey.h"
 #include "macroexecutionoptions.h"
 #include "keymapeditor.h"
+#ifdef QSC_WITH_KEYMAPPER
+#include "webkeymapdialog.h"
+#endif
 #include <QOpenGLWidget>
 #include <QTimer>
 #include <QCloseEvent>
@@ -14,7 +17,7 @@
 
 ActionMacroDialog::ActionMacroDialog(const QString &serial,QWidget *parent):QDialog(parent),m_serial(serial)
 {
-    setWindowTitle(tr("Action Macro 0.2.0-rc.2 - %1").arg(serial));
+    setWindowTitle(tr("Action Macro 0.3.0-rc.1 - %1").arg(serial));
     setAttribute(Qt::WA_DeleteOnClose,false);
     resize(580,700);
     m_statusLabel=new QLabel(this);
@@ -141,9 +144,18 @@ void ActionMacroDialog::editKeymap(){
     const QSize displaySize=surface->size();const QImage image=surface->grabFramebuffer();
     if(image.isNull()){showError(tr("尚未取得画面，请等待投屏显示后重试。"));return;}
     current->prepareKeymapEditing();
+    #ifdef QSC_WITH_KEYMAPPER
+    WebKeymapDialog editor(image,current->currentKeymapScript());
+#else
     KeymapEditor editor(QPixmap::fromImage(image),current->currentKeymapScript());
+#endif
+    #ifdef QSC_WITH_KEYMAPPER
+    connect(current.data(),&qsc::IDevice::deviceDisconnected,&editor,[&editor](const QString&){editor.invalidateSession();});
+    connect(current.data(),&QObject::destroyed,&editor,[&editor](){editor.invalidateSession();});
+#else
     connect(current.data(),&qsc::IDevice::deviceDisconnected,&editor,[&editor](const QString&){editor.done(QDialog::Rejected);});
     connect(current.data(),&QObject::destroyed,&editor,[&editor](){editor.done(QDialog::Rejected);});
+#endif
     const int result=editor.exec();
     if(result==QDialog::Accepted&&current&&surface&&surface->size()==displaySize&&!current->isActionPlaying()&&!current->isActionRecording())current->updateScript(editor.script());
 }

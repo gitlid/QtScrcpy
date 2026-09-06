@@ -1,4 +1,7 @@
-﻿#include <QApplication>
+#ifdef QSC_WITH_KEYMAPPER
+#include "webkeymapdialog.h"
+#endif
+#include <QApplication>
 #include <QColor>
 #include <QDebug>
 #include <QFile>
@@ -104,6 +107,9 @@ int main(int argc, char *argv[])
     QSurfaceFormat::setDefaultFormat(varFormat);
 
     g_oldMessageHandler = qInstallMessageHandler(myMessageOutput);
+#ifdef QSC_WITH_KEYMAPPER
+    WebKeymapDialog::registerScheme();
+#endif
     QApplication a(argc, argv);
 
     // Set application icon for Linux (taskbar icon)
