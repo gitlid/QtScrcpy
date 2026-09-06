@@ -3,10 +3,12 @@ on:
   push:
     branches: [feature/keymap-macro-v2]
     paths: ['.github/workflows/keymap-macro-source.yml']
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   snapshot:
+    if: github.repository == 'gitlid/QtScrcpy' && github.ref == 'refs/heads/feature/keymap-macro-v2'
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
