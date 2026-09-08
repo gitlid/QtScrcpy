@@ -5,6 +5,7 @@
 #include <QKeyEvent>
 #include <QPointer>
 #include <QVector>
+#include <functional>
 #include "../QtScrcpyCore/include/QtScrcpyCore.h"
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -17,10 +18,11 @@ class ActionMacroHotkey : public QObject, public QAbstractNativeEventFilter {
 public:
  static ActionMacroHotkey *instance(){static QPointer<ActionMacroHotkey> current;if(!current)current=new ActionMacroHotkey(qApp);return current.data();}
  void watch(qsc::IDevice*d){if(!d)return;for(const auto&i:m_devices)if(i==d)return;m_devices.append(QPointer<qsc::IDevice>(d));}
+ void watchControls(QObject *context, std::function<void()> stop, std::function<void()> pause){m_controls.append({context,std::move(stop),std::move(pause)});}
  bool globalAvailable()const{return m_globalAvailable;}
  bool pauseGlobalAvailable()const{return m_pauseGlobalAvailable;}
- void pauseAll(){const auto devices=m_devices;for(const auto&d:devices)if(d)d->pauseActionMacro();}
- void stopAll(){const auto devices=m_devices;for(const auto&d:devices){if(d)d->stopActionPlayback();if(d)d->stopActionRecording();if(d)d->releaseKeyboard();}for(int i=m_devices.size()-1;i>=0;--i)if(!m_devices.at(i))m_devices.remove(i);}
+ void pauseAll(){const auto controls=m_controls;for(const auto &control:controls)if(control.context)control.pause();const auto devices=m_devices;for(const auto&d:devices)if(d)d->pauseActionMacro();}
+ void stopAll(){const auto controls=m_controls;for(const auto &control:controls)if(control.context)control.stop();const auto devices=m_devices;for(const auto&d:devices){if(d)d->stopActionPlayback();if(d)d->stopActionRecording();if(d)d->releaseKeyboard();}for(int i=m_devices.size()-1;i>=0;--i)if(!m_devices.at(i))m_devices.remove(i);for(int i=m_controls.size()-1;i>=0;--i)if(!m_controls.at(i).context)m_controls.remove(i);}
  ~ActionMacroHotkey()override{
 #ifdef Q_OS_WIN
   if(m_globalAvailable)UnregisterHotKey(nullptr,kHotkeyId);
@@ -64,5 +66,7 @@ private:
  enum{kHotkeyId=0x514D,kPauseHotkeyId=0x514E};
  bool m_globalAvailable=false,m_pauseGlobalAvailable=false;
  QVector<QPointer<qsc::IDevice>>m_devices;
+ struct Controls {QPointer<QObject> context;std::function<void()> stop,pause;};
+ QVector<Controls> m_controls;
 };
 #endif

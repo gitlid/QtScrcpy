@@ -26,6 +26,10 @@
 #include "ui_videoform.h"
 #include "videoform.h"
 #include "inputbinding.h"
+#include "appsession.h"
+#include "appbar.h"
+#include "actionmacrohotkey.h"
+#include "videoinputgeometry.h"
 
 #ifdef Q_OS_MACOS
 #include "metalvideowindow.h"
@@ -57,6 +61,7 @@ VideoForm::VideoForm(bool framelessWindow, bool skin, bool showToolbar, int deco
 
 VideoForm::~VideoForm()
 {
+    if (m_appSession) m_appSession->shutdown();
     grabCursor(false);
     delete ui;
 }
@@ -189,7 +194,10 @@ void VideoForm::resizeSquare()
 
 void VideoForm::removeBlackRect()
 {
-    resize(ui->keepRatioWidget->goodSize());
+    QSize size = ui->keepRatioWidget->goodSize();
+    const auto margins = layout()->contentsMargins();
+    size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom() + (m_appBar ? m_appBar->height() : 0));
+    resize(size);
 }
 
 void VideoForm::showFPS(bool show)
@@ -235,6 +243,26 @@ void VideoForm::setSerial(const QString &serial)
     if (m_flexDisplay) {
         ui->keepRatioWidget->setWidthHeightRatio(-1.0f);
     }
+    if (!m_appSession && device && !device->isCameraMode() && !m_flexDisplay) {
+        m_appSession = new AppSession(device, Config::getInstance().getServerPath(), this);
+        m_appBar = new AppBar(m_appSession, this);
+        ui->verticalLayout->insertWidget(0, m_appBar);
+        connect(m_appBar, &AppBar::editKeymap, this, [this] { openAppTools(true); });
+        connect(m_appBar, &AppBar::openMacros, this, [this] { openAppTools(false); });
+        ActionMacroHotkey::instance()->watch(device);
+        ActionMacroHotkey::instance()->watchControls(m_appSession, [this] { m_appSession->stopMacro(); }, [this] { m_appSession->pauseMacro(); });
+        resize(width(), height() + m_appBar->height());
+        m_appSession->start();
+    }
+}
+
+void VideoForm::openAppTools(bool editKeymap)
+{
+    if (!m_toolForm) {
+        m_toolForm = new ToolForm(this, ToolForm::AP_OUTSIDE_RIGHT);
+        m_toolForm->setSerial(m_serial);
+    }
+    m_toolForm->openActionMacro(editKeymap);
 }
 
 void VideoForm::showToolForm(bool show)
@@ -550,6 +578,7 @@ void VideoForm::updateShowSize(const QSize &newSize)
             showSize.setWidth(showSize.width() + m.left() + m.right());
             showSize.setHeight(showSize.height() + m.top() + m.bottom());
         }
+        if (m_appBar) showSize.rheight() += m_appBar->height();
 
         if (showSize != size()) {
             resize(showSize);
@@ -726,7 +755,7 @@ void VideoForm::mousePressEvent(QMouseEvent *event)
 #endif
 
     QWidget *vw = videoWidget();
-    if (vw && vw->geometry().contains(event->pos())) {
+    if (VideoInputGeometry::contains(this, vw, event->pos())) {
         if (!device) {
             return;
         }
@@ -736,8 +765,8 @@ void VideoForm::mousePressEvent(QMouseEvent *event)
 
         // debug keymap pos
         if (event->button() == Qt::LeftButton) {
-            qreal x = localPos.x() / vw->size().width();
-            qreal y = localPos.y() / vw->size().height();
+            qreal x = mappedPos.x() / vw->size().width();
+            qreal y = mappedPos.y() / vw->size().height();
             QString posTip = QString(R"("pos": {"x": %1, "y": %2})").arg(x).arg(y);
             qInfo() << posTip.toStdString().c_str();
         }
@@ -978,6 +1007,7 @@ void VideoForm::resizeEvent(QResizeEvent *event)
         return;
     }
     QSize curSize = size();
+    if (m_appBar) goodSize.rheight() += m_appBar->height();
     // 限制VideoForm尺寸不能小于keepRatioWidget good size
     if (m_widthHeightRatio > 1.0f) {
         // hor
@@ -998,6 +1028,7 @@ void VideoForm::resizeEvent(QResizeEvent *event)
 
 void VideoForm::closeEvent(QCloseEvent *event)
 {
+    if (m_appSession) m_appSession->shutdown();
     grabCursor(false);
     Q_UNUSED(event)
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);

@@ -24,6 +24,7 @@ public:
 
     void setSerial(const QString& serial);
     bool isHost();
+    void openActionMacro(bool editKeymap = false);
 
 protected:
     void mousePressEvent(QMouseEvent *event);

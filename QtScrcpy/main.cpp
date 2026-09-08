@@ -130,7 +130,7 @@ int main(int argc, char *argv[])
     QStringList versionList = QCoreApplication::applicationVersion().split(".");
     if (versionList.size() >= 3) {
         QString version = versionList[0] + "." + versionList[1] + "." + versionList[2];
-        a.setApplicationVersion(version);
+        a.setApplicationVersion(version + QStringLiteral("-rc.1"));
     }
 
     installTranslator();

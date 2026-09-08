@@ -18,6 +18,8 @@ class FileHandler;
 class QYUVOpenGLWidget;
 class QLabel;
 class MetalVideoWidget;
+class AppSession;
+class AppBar;
 class VideoForm : public QWidget, public qsc::DeviceObserver
 {
     Q_OBJECT
@@ -36,6 +38,8 @@ public:
     void showFPS(bool show);
     void switchFullScreen();
     bool isHost();
+    AppSession *appSession() const { return m_appSession; }
+    void openAppTools(bool editKeymap);
 
 private:
     void onFrame(int width, int height, uint8_t* dataY, uint8_t* dataU, uint8_t* dataV,
@@ -83,6 +87,8 @@ private:
 
     // ui
     Ui::videoForm *ui;
+    AppSession *m_appSession = nullptr;
+    AppBar *m_appBar = nullptr;
     QPointer<ToolForm> m_toolForm;
     QPointer<QWidget> m_loadingWidget;
     QPointer<QYUVOpenGLWidget> m_videoWidget;
