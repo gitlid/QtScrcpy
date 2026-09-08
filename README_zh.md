@@ -1,5 +1,7 @@
 # QtScrcpy
 
+此分支的 `0.4.0-rc.1` 增加了应用标签、按应用保存键位方案，以及自动打开并保持目标应用的预制操作。使用方法见[应用标签与预制操作](docs/application-profiles.zh-CN.md)。
+
 ![Windows](https://github.com/barry-ran/QtScrcpy/workflows/Windows/badge.svg)
 ![MacOS](https://github.com/barry-ran/QtScrcpy/workflows/MacOS/badge.svg)
 ![Ubuntu](https://github.com/barry-ran/QtScrcpy/workflows/Ubuntu/badge.svg)

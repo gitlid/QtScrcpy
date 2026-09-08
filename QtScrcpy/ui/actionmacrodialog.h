@@ -4,12 +4,14 @@
 #include <QPointer>
 #include "../QtScrcpyCore/include/QtScrcpyCore.h"
 class QLabel;class QPushButton;class QCloseEvent;class MacroExecutionOptions;
+class AppSession;class QComboBox;
 class ActionMacroDialog : public QDialog {
  Q_OBJECT
 public:
- explicit ActionMacroDialog(const QString &serial,QWidget *parent=Q_NULLPTR);
+ explicit ActionMacroDialog(const QString &serial,QWidget *parent=Q_NULLPTR,AppSession *apps=nullptr);
  ~ActionMacroDialog() override;
  void reject() override;
+ void openKeymapEditor(){editKeymap();}
 protected:
  void closeEvent(QCloseEvent *event) override;
 private slots:
@@ -20,6 +22,9 @@ private slots:
 private:
  QPointer<qsc::IDevice> device() const;
  void refreshFromDevice();bool confirmDiscard();void markDisconnected();
+ void refreshApps();void refreshPresets();void loadMacroFile(const QString &path);
+ QPointer<AppSession> m_apps;QComboBox *m_application=nullptr,*m_presets=nullptr;
+ bool m_changingBinding=false,m_bindingChosen=false;
  QString m_serial,m_currentFile,m_lastError;QPointer<qsc::IDevice> m_device;
  bool m_connected=false,m_dirty=false;
  QLabel *m_statusLabel=nullptr,*m_progressLabel=nullptr,*m_errorLabel=nullptr,*m_elapsedLabel=nullptr;

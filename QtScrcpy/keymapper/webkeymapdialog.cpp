@@ -76,7 +76,7 @@ void WebKeymapDialog::registerScheme(){
     QWebEngineUrlScheme::registerScheme(scheme);
 }
 WebKeymapDialog::WebKeymapDialog(const QImage &image,const QString &original,QWidget *parent):QDialog(parent){
-    initializeKeymapperAssets();setWindowTitle(tr("ScrcpyKeyMapper — QtScrcpy 0.3.0-rc.1"));resize(1200,850);setWindowModality(Qt::ApplicationModal);
+    initializeKeymapperAssets();setWindowTitle(tr("ScrcpyKeyMapper — QtScrcpy %1").arg(QCoreApplication::applicationVersion()));resize(1200,850);setWindowModality(Qt::ApplicationModal);
     KeymapDocument document;QString validation;
     if(!original.trimmed().isEmpty()&&!document.parse(original.toUtf8(),&validation))m_validSession=false;
     m_script=QString::fromUtf8(QJsonDocument(document.root).toJson());

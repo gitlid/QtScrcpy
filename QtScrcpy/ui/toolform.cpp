@@ -321,14 +321,21 @@ void ToolForm::on_clipboardBtn_clicked()
 
 void ToolForm::on_actionMacroBtn_clicked()
 {
+    openActionMacro();
+}
+
+void ToolForm::openActionMacro(bool editKeymap)
+{
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (!device || device->isCameraMode()) {
         return;
     }
     if (!m_actionMacroDialog) {
-        m_actionMacroDialog = new ActionMacroDialog(m_serial, this);
+        auto *video = qobject_cast<VideoForm *>(parentWidget());
+        m_actionMacroDialog = new ActionMacroDialog(m_serial, this, video ? video->appSession() : nullptr);
     }
     m_actionMacroDialog->show();
     m_actionMacroDialog->raise();
     m_actionMacroDialog->activateWindow();
+    if (editKeymap) QTimer::singleShot(0, m_actionMacroDialog, [this] { if (m_actionMacroDialog) m_actionMacroDialog->openKeymapEditor(); });
 }
