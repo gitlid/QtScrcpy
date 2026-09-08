@@ -170,6 +170,8 @@ void switchBack() {
     f.commands.complete("launch", "Warning: Activity not started, task brought to front");
     f.settle(first); require(!f.device.paused && f.device.resumes == 1 && f.device.plays == 1, "continue instead of restarting macro");
     require(f.session.locked(), "lock remains while playback runs");
+    f.device.stopActionPlayback();
+    require(!f.session.locked() && !f.session.status().contains(QString::fromUtf8("运行中")), "completion clears the running label and lock");
 }
 void stopPending() {
     Fixture f;

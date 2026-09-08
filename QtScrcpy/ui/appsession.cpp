@@ -372,7 +372,9 @@ void AppSession::stopMacro() {
     m_target.clear(); m_pendingStart = nullptr; m_started = m_autoPaused = m_manualPaused = false;
     m_recovery.invalidate(); m_stable.invalidate();
     if (m_device) { m_device->setActionMacroApplicationBound(false); m_device->stopActionPlayback(); }
-    applyForegroundKeymap(); emit lockChanged();
+    applyForegroundKeymap();
+    setStatus(!m_connected ? tr("手机已断开") : m_foreground.isEmpty() ? tr("手机桌面、锁屏或系统界面") : tr("当前：%1").arg(label(m_foreground)));
+    emit lockChanged();
 }
 void AppSession::failGuard(const QString &text) { stopMacro(); setStatus(text); emit failure(text); }
 void AppSession::setStatus(const QString &text) { if (m_status != text) { m_status = text; emit statusChanged(text); } }
