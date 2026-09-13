@@ -14,6 +14,13 @@ struct EnvironmentValue {
     EnvironmentValue(const char *key, const QByteArray &value) : name(key), previous(qgetenv(key)), existed(qEnvironmentVariableIsSet(key)) { qputenv(key, value); }
     ~EnvironmentValue() { if (existed) qputenv(name.constData(), previous); else qunsetenv(name.constData()); }
 };
+QStringList lastLaunchArguments(const FakeCommands &commands) {
+    // A fresh focus probe may be enqueued after the launch in the same callback.
+    // Inspect the launch itself, not whichever unrelated command happens last.
+    for (int i = commands.requests.size() - 1; i >= 0; --i)
+        if (commands.requests.at(i).tag == "launch") return commands.requests.at(i).args;
+    return {};
+}
 void nameUtf8() {
     const QString text = QString::fromUtf8(" * 微信    com.example.game\r\n - R&D 测试😀    com.example.tools\n");
     AppCommandOutput output; const QByteArray bytes = text.toUtf8();
@@ -82,7 +89,7 @@ void nameRetryFailure() {
 }
 void ordinaryTabSwitch() {
     Fixture f; f.focus(first); f.session.activate(second);
-    require(f.commands.pending.contains("launch") && f.commands.requests.last().args.last().contains(second), "normal tab navigation remains available");
+    require(f.commands.pending.contains("launch") && lastLaunchArguments(f.commands).last().contains(second), "normal tab navigation remains available");
     f.commands.complete("launch"); f.settle(second);
     require(!f.session.locked() && !f.device.playing && f.commands.launches() == 1, "unbound navigation does not create a macro guard");
 }
@@ -90,10 +97,10 @@ void macroTabSwitch() {
     Fixture f; f.start(); const int before = f.commands.launches();
     f.session.activate(second);
     require(f.device.paused && f.session.locked() && f.commands.launches() == before + 1, "pause before navigating without clearing target");
-    require(f.commands.requests.last().args.last().contains(second), "clicked tab is actually launched");
+    require(lastLaunchArguments(f.commands).last().contains(second), "clicked tab is actually launched");
     f.focus(first); require(f.device.paused && f.device.resumes == 0, "stale target observation while launching cannot resume");
     f.commands.complete("launch"); f.focus(second);
-    require(f.commands.launches() == before + 2 && f.commands.requests.last().args.last().contains(first), "guard returns to original bound app");
+    require(f.commands.launches() == before + 2 && lastLaunchArguments(f.commands).last().contains(first), "guard returns to original bound app");
     f.commands.complete("launch"); f.settle(first);
     require(!f.device.paused && f.device.resumes == 1 && f.device.plays == 1, "resume remaining macro, not restart");
 }
@@ -110,15 +117,15 @@ void navigationCoalesced() {
     f.session.activate(second); f.session.activate(QString()); f.session.activate(first);
     require(f.commands.launches() == before + 1, "one launch in flight");
     f.commands.complete("launch");
-    require(f.commands.launches() == before + 2 && f.commands.requests.last().args.last().contains(first), "latest queued choice wins");
+    require(f.commands.launches() == before + 2 && lastLaunchArguments(f.commands).last().contains(first), "latest queued choice wins");
     f.commands.complete("launch"); f.settle(first);
     require(f.device.plays == 1 && f.device.resumes == 1, "coalescing cannot duplicate macro start");
 }
 void desktopVisit() {
     Fixture f; f.start(); f.session.activate(QString());
-    require(f.device.paused && f.commands.requests.last().args.contains("android.intent.category.HOME"), "desktop can be visited during macro");
+    require(f.device.paused && lastLaunchArguments(f.commands).contains("android.intent.category.HOME"), "desktop can be visited during macro");
     f.commands.complete("launch"); f.focus(QString());
-    require(f.commands.pending.contains("launch") && f.commands.requests.last().args.last().contains(first), "desktop visit still returns to bound app");
+    require(f.commands.pending.contains("launch") && lastLaunchArguments(f.commands).last().contains(first), "desktop visit still returns to bound app");
 }
 void stopVisit() {
     Fixture f; f.start(); f.session.activate(second); f.session.activate(QString());
@@ -182,7 +189,7 @@ void overflowNavigation() {
     QAction *choice = nullptr;
     for (auto *action : menu->actions()) if (action->data().toString() == "com.extra.app10") choice = action;
     require(choice, "hidden target exists"); choice->trigger();
-    require(f.commands.pending.contains("launch") && f.commands.requests.last().args.last().contains("com.extra.app10"), "overflow selects the correct application");
+    require(f.commands.pending.contains("launch") && lastLaunchArguments(f.commands).last().contains("com.extra.app10"), "overflow selects the correct application");
 }
 void overflowCloseAndGuard() {
     Fixture f; fillTabs(f); f.start(); AppBar bar(&f.session); bar.resize(420,66); bar.show(); wait(60);
@@ -193,7 +200,7 @@ void overflowCloseAndGuard() {
     for (auto *action : menu->actions()) require(action->data().toString() != "com.extra.app11", "closed overflow tab is removed");
     QAction *choice = nullptr; for (auto *action : menu->actions()) if (action->data().toString() == "com.extra.app10") choice = action;
     require(choice && choice->isEnabled(), "hidden app is selectable during playback"); choice->trigger();
-    require(f.device.paused && f.commands.requests.last().args.last().contains("com.extra.app10"), "menu uses the same pause-before-navigation path");
+    require(f.device.paused && lastLaunchArguments(f.commands).last().contains("com.extra.app10"), "menu uses the same pause-before-navigation path");
 }
 void literalName() {
     Fixture f; fillTabs(f); AppBar bar(&f.session); bar.resize(420,66); bar.show(); wait(50);
@@ -205,6 +212,7 @@ void literalName() {
 }
 }
 int main(int argc, char **argv) {
+    qInstallMessageHandler([](QtMsgType, const QMessageLogContext &, const QString &text) { std::fprintf(stderr, "%s\n", text.toUtf8().constData()); });
     QApplication app(argc, argv); app.setQuitOnLastWindowClosed(false);
     const QVector<QPair<QString,std::function<void()>>> cases{
         {"name_utf8",nameUtf8},{"name_wrapped",nameWrapped},{"name_diagnostics",nameDiagnostics},{"output_channels",outputChannels},
