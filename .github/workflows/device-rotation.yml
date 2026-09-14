@@ -1,0 +1,31 @@
+name: Device rotation regression
+on:
+  push:
+    branches: [feature/device-rotation]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rotation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    if: github.repository == 'gitlid/QtScrcpy'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Preserve sources for review
+        run: |
+          mkdir -p review
+          tar --exclude='.git' --exclude='QtScrcpy/QtScrcpyCore/src/third_party' --exclude='QtScrcpy/third_party' --exclude='review' -czf review/sources.tar.gz .
+          git rev-parse HEAD > review/tested-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rotation-review
+          path: review/
+          retention-days: 7
+          if-no-files-found: error
