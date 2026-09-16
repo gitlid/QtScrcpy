@@ -4,6 +4,8 @@
 #include <QShowEvent>
 
 #include "actionmacrodialog.h"
+#include "devicerotationmenu.h"
+#include <QShortcut>
 #include "iconhelper.h"
 #include "toolform.h"
 #include "ui_toolform.h"
@@ -30,6 +32,23 @@ void ToolForm::setSerial(const QString &serial)
 {
     m_serial = serial;
     updateCameraMode();
+    if (m_rotationMenu) return; // Bind to the original live device, not a later replacement.
+    auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+    if (device && !device->isCameraMode() && !device->isFlexDisplay()) {
+        auto *video = qobject_cast<VideoForm *>(parentWidget());
+        m_rotationMenu = new DeviceRotationMenu(device, video ? video->appSession() : nullptr, this);
+        ui->rotateBtn->setMenu(m_rotationMenu);
+        ui->rotateBtn->setToolTip(tr("设备旋转：切换横竖屏 / 固定横屏 / 固定竖屏 / 恢复原设置"));
+        // Reuse the existing shortcut, replacing its silent control-message path.
+        // UHID mode still reserves Ctrl+R for Android through ShortcutOverride.
+        if (video) for (auto *shortcut : video->findChildren<QShortcut *>(QString(), Qt::FindDirectChildrenOnly)) {
+            if (shortcut->key() != QKeySequence("Ctrl+r")) continue;
+            QObject::disconnect(shortcut, SIGNAL(activated()), video, nullptr);
+            connect(shortcut, &QShortcut::activated, m_rotationMenu, [this] {
+                if (m_rotationMenu) m_rotationMenu->choose(DeviceRotation::Toggle);
+            });
+        }
+    }
 }
 
 bool ToolForm::isHost()
@@ -246,14 +265,6 @@ void ToolForm::on_expandSettingsBtn_clicked()
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (device) {
         device->expandSettingsPanel();
-    }
-}
-
-void ToolForm::on_rotateBtn_clicked()
-{
-    auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
-    if (device) {
-        device->rotateDevice();
     }
 }
 

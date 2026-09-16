@@ -14,6 +14,7 @@ namespace Ui
 
 class Device;
 class ActionMacroDialog;
+class DeviceRotationMenu;
 class ToolForm : public MagneticWidget
 {
     Q_OBJECT
@@ -47,7 +48,6 @@ private slots:
     void on_closeScreenBtn_clicked();
     void on_expandNotifyBtn_clicked();
     void on_expandSettingsBtn_clicked();
-    void on_rotateBtn_clicked();
     void on_touchBtn_clicked();
     void on_cameraTorchBtn_clicked();
     void on_cameraZoomOutBtn_clicked();
@@ -70,6 +70,7 @@ private:
     bool m_cameraTorch = false;
     bool m_isHost = false;
     QPointer<ActionMacroDialog> m_actionMacroDialog;
+    QPointer<DeviceRotationMenu> m_rotationMenu;
 };
 
 #endif // TOOLFORM_H
