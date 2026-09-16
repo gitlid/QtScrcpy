@@ -10,6 +10,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(APP_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../QtScrcpy)
     add_library(qsc_applications STATIC
         ${APP_ROOT}/ui/appsession.cpp ${APP_ROOT}/ui/appsession.h ${APP_ROOT}/ui/appbar.cpp ${APP_ROOT}/ui/appbar.h
+        ${APP_ROOT}/ui/devicerotation.cpp ${APP_ROOT}/ui/devicerotation.h
+        ${APP_ROOT}/ui/devicerotationmenu.cpp ${APP_ROOT}/ui/devicerotationmenu.h
         ${APP_ROOT}/QtScrcpyCore/include/QtScrcpyCore.h ${APP_ROOT}/QtScrcpyCore/include/adbprocess.h
         ${APP_ROOT}/QtScrcpyCore/src/adb/adbprocess.cpp ${APP_ROOT}/QtScrcpyCore/src/adb/adbprocessimpl.cpp
         ${APP_ROOT}/QtScrcpyCore/src/adb/adbprocessimpl.h)
@@ -31,3 +33,38 @@ foreach(case_name IN ITEMS parsers binding_metadata profile_switch profile_resta
     add_test(NAME app_${case_name} COMMAND app_session_tests ${case_name})
     set_tests_properties(app_${case_name} PROPERTIES TIMEOUT 20 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endforeach()
+
+add_executable(app_tabs_polish_tests app_tabs_polish_test.cpp)
+set_target_properties(app_tabs_polish_tests PROPERTIES AUTOMOC ON CXX_STANDARD 11)
+target_include_directories(app_tabs_polish_tests PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../QtScrcpy/QtScrcpyCore/include)
+target_link_libraries(app_tabs_polish_tests PRIVATE qsc_applications)
+if(MSVC)
+    target_compile_options(app_tabs_polish_tests PRIVATE /utf-8 /W3 /WX)
+endif()
+foreach(case_name IN ITEMS name_utf8 name_wrapped name_diagnostics output_channels cache_unbound cache_device name_retry name_failure
+    ordinary_switch macro_switch repeated_visits navigation_queue desktop_visit stop_visit pause_visit pause_recovery visit_failure
+    mapping_guard overflow_menu overflow_navigation overflow_guard literal_name)
+    add_test(NAME apps_polish_${case_name} COMMAND app_tabs_polish_tests ${case_name})
+    set_tests_properties(apps_polish_${case_name} PROPERTIES TIMEOUT 20 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endforeach()
+
+add_executable(device_rotation_tests rotation_test.cpp)
+set_target_properties(device_rotation_tests PROPERTIES AUTOMOC ON CXX_STANDARD 11)
+target_link_libraries(device_rotation_tests PRIVATE qsc_applications)
+if(MSVC)
+    target_compile_options(device_rotation_tests PRIVATE /utf-8 /W3 /WX)
+endif()
+foreach(case_name IN ITEMS parse_android11 parse_android16 parse_secondary parse_incomplete backup_schema
+    modern_landscape natural_landscape toggle_auto toggle_locked legacy_restore restore_exact restore_original
+    cancel_no_write unsupported identity_missing backup_corrupt device_isolation user_isolation reconnect_restore
+    rollback permission user_changed write_guard disconnect rom_ignores no_backup concurrent null_setting
+    menu_actions menu_cancel_macro menu_stop_macro)
+    add_test(NAME rotation_${case_name} COMMAND device_rotation_tests ${case_name})
+    set_tests_properties(rotation_${case_name} PROPERTIES TIMEOUT 20 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endforeach()
+if(WIN32)
+    # Qt 5's Windows offscreen backend crashes when QMessageBox requests native
+    # dialog icons. Exercise both confirmation paths on the real Windows backend.
+    set_tests_properties(rotation_menu_cancel_macro rotation_menu_stop_macro
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+endif()

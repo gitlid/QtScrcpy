@@ -1,0 +1,53 @@
+name: Device rotation regression
+on:
+  push:
+    branches: [dev, feature/device-rotation]
+    paths: ['QtScrcpy/ui/**', 'QtScrcpy/QtScrcpyCore', 'tests/apps/**', 'CMakeLists.txt', '.github/workflows/device-rotation.yml']
+  pull_request:
+    branches: [dev]
+    paths: ['QtScrcpy/ui/**', 'QtScrcpy/QtScrcpyCore', 'tests/apps/**', 'CMakeLists.txt', '.github/workflows/device-rotation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rotation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    if: github.repository == 'gitlid/QtScrcpy'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Build and test committed rotation and application sources
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qtbase5-dev ninja-build
+          cmake -S tests/apps -B build-rotation -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -fno-pie' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined -no-pie'
+          cmake --build build-rotation --parallel 2
+      - name: Rotation regression with sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          ctest --test-dir build-rotation -R '^rotation_' --output-on-failure --output-junit rotation-results.xml
+          git diff --exit-code
+      - name: Preserve sources for review
+        if: always()
+        run: |
+          mkdir -p review
+          tar --exclude='.git' --exclude='QtScrcpy/QtScrcpyCore/src/third_party' --exclude='QtScrcpy/third_party' --exclude='review' --exclude='build-rotation' -czf review/sources.tar.gz .
+          git rev-parse HEAD > review/tested-commit.txt
+          cp build-rotation/rotation-results.xml review/ || true
+          cp build-rotation/Testing/Temporary/LastTest.log review/ || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rotation-review
+          path: review/
+          retention-days: 7
+          if-no-files-found: error
