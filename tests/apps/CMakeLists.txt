@@ -62,3 +62,9 @@ foreach(case_name IN ITEMS parse_android11 parse_android16 parse_secondary parse
     add_test(NAME rotation_${case_name} COMMAND device_rotation_tests ${case_name})
     set_tests_properties(rotation_${case_name} PROPERTIES TIMEOUT 20 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endforeach()
+if(WIN32)
+    # Qt 5's Windows offscreen backend crashes when QMessageBox requests native
+    # dialog icons. Exercise both confirmation paths on the real Windows backend.
+    set_tests_properties(rotation_menu_cancel_macro rotation_menu_stop_macro
+        PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+endif()
