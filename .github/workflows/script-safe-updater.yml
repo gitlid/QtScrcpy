@@ -40,12 +40,18 @@ jobs:
           New-Item -ItemType Directory out,dist -Force | Out-Null
           $csc=Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
           $refs=Join-Path ${env:ProgramFiles(x86)} 'Reference Assemblies/Microsoft/Framework/.NETFramework/v4.8'
+          $core=(Resolve-Path 'tools/updater/UpdaterCore.cs').Path
+          $gui=(Resolve-Path 'tools/updater/UpdaterGui.cs').Path
+          $tests=(Resolve-Path 'tools/updater/UpdaterTests.cs').Path
+          $faults=(Resolve-Path 'tools/updater/UpdaterFailureTests.cs').Path
+          $manifest=(Resolve-Path 'tools/updater/updater.manifest').Path
+          $output=(Resolve-Path out).Path
           $common=@('/nologo','/utf8output','/codepage:65001','/warnaserror+','/platform:x64',"/lib:$refs",'/r:System.dll','/r:System.Core.dll','/r:System.Xml.dll','/r:System.Xml.Linq.dll','/r:System.IO.Compression.dll','/r:System.IO.Compression.FileSystem.dll')
-          & $csc @common /target:winexe /out:out/QtScrcpyUpdate.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /win32manifest:tools/updater/updater.manifest "/resource:$payload,qsc-payload.zip" tools/updater/UpdaterCore.cs tools/updater/UpdaterGui.cs
+          & $csc @common /target:winexe "/out:$output\QtScrcpyUpdate.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll "/win32manifest:$manifest" "/resource:$payload,qsc-payload.zip" $core $gui
           if($LASTEXITCODE -ne 0){throw 'GUI compilation failed'}
-          & $csc @common /target:exe /define:UPDATER_TEST /out:out/UpdaterTests.exe tools/updater/UpdaterCore.cs tools/updater/UpdaterTests.cs
+          & $csc @common /target:exe /define:UPDATER_TEST "/out:$output\UpdaterTests.exe" $core $tests
           if($LASTEXITCODE -ne 0){throw 'Test compilation failed'}
-          & $csc @common /target:exe /define:UPDATER_TEST /out:out/UpdaterFailureTests.exe tools/updater/UpdaterCore.cs tools/updater/UpdaterFailureTests.cs
+          & $csc @common /target:exe /define:UPDATER_TEST "/out:$output\UpdaterFailureTests.exe" $core $faults
           if($LASTEXITCODE -ne 0){throw 'Fault test compilation failed'}
           '<?xml version="1.0" encoding="utf-8"?><configuration><startup><supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8"/></startup></configuration>' | Set-Content out/QtScrcpyUpdate.exe.config -Encoding utf8
           git diff --exit-code
