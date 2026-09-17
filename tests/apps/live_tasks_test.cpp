@@ -40,6 +40,15 @@ void parseTasks(bool legacy) {
     QStringList out; int user = -1;
     require(AppRecentTasks::parse(snapshot(task(first,0,0,legacy)+task(second,1,0,legacy)+task(first,2,0,legacy)),&out,&user),"parse AOSP task records");
     require(out == QStringList({first,second}) && user == 0,"deduplicate in MRU order");
+    // Task.dump() prints realActivity as mActivityComponent in Android 10+.
+    const auto aosp = (task(first,0,0,legacy)+task(second,1,0,legacy))
+        .replace("realActivity=", "mActivityComponent=");
+    require(AppRecentTasks::parse(snapshot(aosp),&out,&user) && out==QStringList({first,second}),
+            "parse actual AOSP mActivityComponent dump field");
+    const auto visibleInfo = QString("  Visible recent tasks (most recent first):\n"
+        "  * RecentTaskInfo #0: id=99 userId=10 activityType=2 realActivity=com.other.app/.Main\n");
+    require(AppRecentTasks::parse(snapshot(aosp+visibleInfo),&out,&user) && out==QStringList({first,second}),
+            "appended RecentTaskInfo section cannot contaminate final task");
 }
 void users() {
     QStringList out; int user = -1;
@@ -68,6 +77,10 @@ void homeFiltered() {
     const auto home = task("com.example.launcher").replace("type=standard","type=home");
     require(AppRecentTasks::parse(snapshot(home+task(first,1)+task("com.android.systemui",2)),&out,&user),"parse system tasks");
     require(out == QStringList({first}),"home and SystemUI are not closeable application tabs");
+    const auto numericHome = task("com.example.launcher",0,0,true)
+        .replace("type=standard", "activityType=2").replace("realActivity=", "mActivityComponent=");
+    require(AppRecentTasks::parse(snapshot(numericHome+task(first,1)),&out,&user) && out==QStringList({first}),
+            "numeric legacy activityType excludes home task");
 }
 void liveTabs() {
     Fixture f; f.focus(first); require(f.session.bindKeymap(first,mapping(25)),"save original app profile");

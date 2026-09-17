@@ -50,7 +50,11 @@ bool AppRecentTasks::parse(const QString &output, QStringList *packages, int *us
     if (!begin.hasMatch() || !end.hasMatch() || begin.captured(1) != end.captured(1)) return false;
     bool userOk = false; const int activeUser = begin.captured(1).toInt(&userOk);
     if (!userOk || activeUser < 0) return false;
-    const QString body = text.mid(begin.capturedEnd(), end.capturedStart() - begin.capturedEnd());
+    QString body = text.mid(begin.capturedEnd(), end.capturedStart() - begin.capturedEnd());
+    // AOSP appends a second, independently formatted RecentTaskInfo section.
+    // Do not let its fields become part of the last Task/TaskRecord block.
+    const auto visibleSection = QRegularExpression("(?:^|\\n)[ \\t]*Visible recent tasks[^\\n]*:").match(body);
+    if (visibleSection.hasMatch()) body.truncate(visibleSection.capturedStart());
     if (!body.contains("ACTIVITY MANAGER RECENT TASKS")) return false;
     const QRegularExpression header("(?:^|\\n)[ \\t]*\\*?[ \\t]*Recent #([0-9]+):[ \\t]*(?:TaskRecord|Task)\\{");
     QList<int> starts; auto matches = header.globalMatch(body);
@@ -58,8 +62,9 @@ bool AppRecentTasks::parse(const QString &output, QStringList *packages, int *us
     if (starts.isEmpty() && (body.contains("Recent #") || body.contains("Task{" ) || body.contains("TaskRecord{"))) return false;
     QStringList found; QSet<QString> seen;
     const QRegularExpression userId("\\buserId=([0-9]+)\\b"), shortUser("\\bU=([0-9]+)\\b");
-    const QRegularExpression component("\\b(?:realActivity|mRealActivity)=([A-Za-z][A-Za-z0-9_.]*)/[A-Za-z0-9_.$]+");
+    const QRegularExpression component("\\b(?:realActivity|mRealActivity|mActivityComponent)=([A-Za-z][A-Za-z0-9_.]*)/[A-Za-z0-9_.$]+");
     const QRegularExpression systemTask("\\b(?:type|activityType)=(?:home|recents|dream|assistant)\\b");
+    const QRegularExpression numericType("\\bactivityType=([0-9]+)\\b");
     for (int i = 0; i < starts.size(); ++i) {
         const int last = i + 1 < starts.size() ? starts[i + 1] : body.size();
         const QString block = body.mid(starts[i], last - starts[i]);
@@ -68,6 +73,9 @@ bool AppRecentTasks::parse(const QString &output, QStringList *packages, int *us
         bool ok = false; const int taskUser = uid.captured(1).toInt(&ok);
         if (!ok) return false;
         if (taskUser != activeUser || systemTask.match(block).hasMatch() || block.contains("isAvailable=false")) continue;
+        const auto activityType = numericType.match(block);
+        // AOSP numeric types: undefined=0, standard=1; never close system task types.
+        if (activityType.hasMatch() && activityType.captured(1).toInt() > 1) continue;
         const auto app = component.match(block);
         // A task may be empty after uninstall; only an explicit null is safe to ignore.
         if (!app.hasMatch()) { if (block.contains("realActivity=null")) continue; return false; }
@@ -124,7 +132,7 @@ void AppRecentTasks::result(const QString &tag, bool success, const QString &out
     }
     const bool switchedUser = m_user >= 0 && user != m_user;
     const bool changedList = !m_hasSnapshot || packages != m_packages || switchedUser || !m_fresh;
-    m_user = user; m_packages = packages; m_hasSnapshot = m_fresh = true; m_lastSuccess.restart();
+    m_user = user; m_packages = packages; m_hasSnapshot = m_fresh = true; m_lastSuccess.start();
     if (switchedUser) emit userChanged();
     if (changedList) emit changed();
     if (m_verifyingClose) {

@@ -20,6 +20,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(qsc_applications PUBLIC Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
     if(MSVC)
         target_compile_options(qsc_applications PRIVATE /utf-8 /W3 /WX)
+        # Qt 5.15 uses MSVC checked iterators deprecated by the 2025+ STL.
+        # Limit suppression to that vendor extension; keep all other /WX checks.
+        if(QT_VERSION_MAJOR EQUAL 5)
+            target_compile_definitions(qsc_applications PUBLIC _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING)
+        endif()
     endif()
 endif()
 add_executable(app_session_tests app_session_test.cpp)
