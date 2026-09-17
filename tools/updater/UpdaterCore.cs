@@ -26,9 +26,9 @@ internal sealed class Change {
     public bool Existed;
 }
 public static class Updater {
-    public const string Version = "0.4.4-rc.1";
-    public const string PayloadHash = "1e966081f8f5ce03a1ca518c5b7c008b1cc7da7d1de4ffbcfd4ac4a612213e41";
-    const string Prefix = "QtScrcpy-keymapper-0.4.4-rc.1-win64/";
+    public const string Version = "0.4.5-rc.1";
+    public const string PayloadHash = "380026258db37136df2467d88c6cf2f1881140a4240d5c8bee3fe89913e6432e";
+    const string Prefix = "QtScrcpy-keymapper-0.4.5-rc.1-win64/";
     const string Format = "QtScrcpy-safe-update-v1";
     static readonly StringComparer Names = StringComparer.OrdinalIgnoreCase;
 #if UPDATER_TEST
@@ -116,8 +116,8 @@ public static class Updater {
             var drive = new DriveInfo(Path.GetPathRoot(target));
             if (!String.Equals(drive.DriveFormat,"NTFS",StringComparison.OrdinalIgnoreCase)) throw new IOException("此安全覆盖更新器要求本地 NTFS 磁盘；当前目录没有被修改。");
             var v = FileVersionInfo.GetVersionInfo(Path.Combine(target,"QtScrcpy.exe"));
-            if (v.FileMajorPart != 0 || v.FileMinorPart != 4 || v.FileBuildPart > 4)
-                throw new IOException("仅允许更新 0.4.0—0.4.4 系列，拒绝降级或覆盖无法识别的程序。检测版本：" + v.FileVersion);
+            if (v.FileMajorPart != 0 || v.FileMinorPart != 4 || v.FileBuildPart > 5)
+                throw new IOException("仅允许更新 0.4.0—0.4.5 系列，拒绝降级或覆盖无法识别的程序。检测版本：" + v.FileVersion);
             using (var b = new BinaryReader(File.OpenRead(Path.Combine(target,"QtScrcpy.exe")))) {
                 if (b.ReadUInt16() != 0x5a4d) throw new IOException("目标不是有效的 Windows 程序。");
                 b.BaseStream.Position=0x3c; int off=b.ReadInt32();
@@ -129,8 +129,8 @@ public static class Updater {
             if (File.Exists(info)) {
                 string text=File.ReadAllText(info);
                 var match=System.Text.RegularExpressions.Regex.Match(text,"\"version\"\\s*:\\s*\"([^\"]+)\"");
-                if (match.Success && match.Groups[1].Value.StartsWith("0.4.4") && match.Groups[1].Value!=Version)
-                    throw new IOException("检测到不同或更新的 0.4.4 版本，拒绝把它降级为候选版："+match.Groups[1].Value);
+                if (match.Success && match.Groups[1].Value.StartsWith("0.4.5") && match.Groups[1].Value!=Version)
+                    throw new IOException("检测到不同或更新的 0.4.5 版本，拒绝把它降级为候选版："+match.Groups[1].Value);
             }
         }
         Idle();
