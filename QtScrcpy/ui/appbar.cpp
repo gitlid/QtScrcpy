@@ -5,7 +5,6 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QWidgetAction>
-#include <QScopedValueRollback>
 #include <QSet>
 #include <QAction>
 #include <QDialog>
@@ -81,14 +80,14 @@ AppBar::AppBar(AppSession *session, QWidget *parent) : QWidget(parent), m_sessio
     m_status->setObjectName("appSyncStatus");
     m_status->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_status, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
-        auto *tasks = m_session ? m_session->findChild<AppRecentTasks *>() : nullptr;
+        const QPointer<AppRecentTasks> tasks = m_session ? m_session->findChild<AppRecentTasks *>() : nullptr;
         if (!tasks) return;
-        QMenu menu(this);
+        QMenu menu;
         auto *retry = menu.addAction(tr("立即重试最近任务同步"));
         auto *copy = menu.addAction(tr("复制同步诊断（不含脚本和任务正文）"));
         const auto *choice = menu.exec(m_status->mapToGlobal(pos));
-        if (choice == retry) tasks->refresh();
-        if (choice == copy) QApplication::clipboard()->setText(tasks->diagnostics());
+        if (tasks && choice == retry) tasks->refresh();
+        if (tasks && choice == copy) QApplication::clipboard()->setText(tasks->diagnostics());
     });
     m_status->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     auto *layout = new QVBoxLayout(this); layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(0);
@@ -201,16 +200,19 @@ void AppBar::refreshStatus() {
 void AppBar::confirmCloseApp(const QString &packageName) {
     const QPointer<AppSession> session = m_session;
     if (m_confirmingClose || !session || !session->canCloseApp(packageName)) return;
-    QScopedValueRollback<bool> confirmation(m_confirmingClose, true);
+    const QPointer<AppBar> self = this;
     const QPointer<AppRecentTasks> tasks = session->findChild<AppRecentTasks *>();
     if (!tasks) return;
     const auto context = tasks->contextRevision();
+    m_confirmingClose = true;
     const auto answer = QMessageBox::question(this, tr("关闭手机应用"),
         tr("关闭“%1”（%2）？\n这会强制停止该应用，不是只隐藏标签，也不会卸载或清除数据。\n"
            "未保存的操作可能丢失，后台通知可能停止，直到再次打开应用。\n"
            "继续还会停止当前宏、录制和自动切回任务；录制不会自动保存。")
             .arg(session->label(packageName), packageName),
         QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (!self) return;
+    m_confirmingClose = false;
     if (answer == QMessageBox::Yes && session && tasks && tasks->contextRevision() == context)
         session->closeApp(packageName);
 }
