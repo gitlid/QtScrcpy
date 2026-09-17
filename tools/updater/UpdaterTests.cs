@@ -16,7 +16,7 @@ class UpdaterTests {
     static string Get(string root,string rel) { return File.ReadAllText(Path.Combine(root,rel.Replace('/',Path.DirectorySeparatorChar)),Encoding.UTF8); }
     static MemoryStream Zip(IDictionary<string,string> entries) {
         var s=new MemoryStream();
-        using(var z=new ZipArchive(s,ZipArchiveMode.Create,true)) foreach(var x in entries) using(var w=new StreamWriter(z.CreateEntry("QtScrcpy-keymapper-0.4.3-rc.1-win64/"+x.Key).Open(),Encoding.UTF8)) w.Write(x.Value);
+        using(var z=new ZipArchive(s,ZipArchiveMode.Create,true)) foreach(var x in entries) using(var w=new StreamWriter(z.CreateEntry("QtScrcpy-keymapper-0.4.4-rc.1-win64/"+x.Key).Open(),Encoding.UTF8)) w.Write(x.Value);
         s.Position=0;return s;
     }
     sealed class Fixture : IDisposable {

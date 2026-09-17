@@ -6,9 +6,9 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 [assembly: AssemblyTitle("QtScrcpy 保留脚本覆盖更新器")]
-[assembly: AssemblyDescription("Offline 0.4.3-rc.1 update with verified backups and script-preserving rollback")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyDescription("Offline 0.4.4-rc.1 update with verified backups and script-preserving rollback")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 namespace QscUpdate {
 internal static class Program {
     internal static Stream Payload() { return Assembly.GetExecutingAssembly().GetManifestResourceStream("qsc-payload.zip"); }
@@ -28,7 +28,7 @@ internal sealed class UpdateWindow : Form {
     readonly ProgressBar progress=new ProgressBar();
     bool working; string lastBackup;
     public UpdateWindow() {
-        Text="QtScrcpy 0.4.3-rc.1 · 保留脚本覆盖更新"; ClientSize=new Size(780,585);
+        Text="QtScrcpy 0.4.4-rc.1 · 保留脚本覆盖更新"; ClientSize=new Size(780,585);
         MinimumSize=new Size(700,580); StartPosition=FormStartPosition.CenterScreen;
         Font=new Font("Microsoft YaHei UI",9F); AutoScaleMode=AutoScaleMode.Dpi;
         var panel=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=1,RowCount=8,Padding=new Padding(18) };
@@ -43,7 +43,7 @@ internal sealed class UpdateWindow : Form {
         panel.RowStyles.Add(new RowStyle(SizeType.Percent,100));
         Controls.Add(panel);
         panel.Controls.Add(new Label { Text="在原目录更新，脚本路径不变",Font=new Font(Font.FontFamily,16F,FontStyle.Bold),Dock=DockStyle.Fill },0,0);
-        panel.Controls.Add(new Label { Text="保留已有 config、keymap、宏脚本及其它自定义文件。\r\nAppData、外部脚本目录和环境变量不修改；不重置应用绑定。\r\n完整备份旧程序目录后才替换程序；回退时也不覆盖脚本数据。\r\n仅适用于本地 NTFS 上的 0.4.0—0.4.3 x64；无需联网。",Dock=DockStyle.Fill },0,1);
+        panel.Controls.Add(new Label { Text="保留已有 config、keymap、宏脚本及其它自定义文件。\r\nAppData、外部脚本目录和环境变量不修改；不重置应用绑定。\r\n完整备份旧程序目录后才替换程序；回退时也不覆盖脚本数据。\r\n仅适用于本地 NTFS 上的 0.4.0—0.4.4 x64；无需联网。",Dock=DockStyle.Fill },0,1);
         panel.Controls.Add(new Label { Text="选择你目前实际使用的旧 QtScrcpy.exe：",Dock=DockStyle.Fill },0,2);
         var row=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=1 };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,110));
@@ -66,7 +66,7 @@ internal sealed class UpdateWindow : Form {
         update.Click+=StartUpdate;restore.Click+=StartRestore;
         openBackup.Click+=(s,e)=> { if(Directory.Exists(lastBackup)) Process.Start("explorer.exe",lastBackup); };
         FormClosing+=(s,e)=> { if(working) { e.Cancel=true;MessageBox.Show(this,"正在备份或替换文件，请勿关闭或断电。",Text,MessageBoxButtons.OK,MessageBoxIcon.Information); } };
-        Append("本工具未作数字签名。请使用可信来源文件并核对 SHA-256。\r\n备份位于旧目录旁的 <原目录名>.qsc-update-backups，完成后不要立即删除。\r\n未保存到文件的录制不能通过更新保留。程序不会自动启动新版。\r\n这次只改变更新方式；应用功能版本仍为 0.4.3-rc.1。");
+        Append("本工具未作数字签名。请使用可信来源文件并核对 SHA-256。\r\n备份位于旧目录旁的 <原目录名>.qsc-update-backups，完成后不要立即删除。\r\n未保存到文件的录制不能通过更新保留。程序不会自动启动新版。\r\n本包更新到 0.4.4-rc.1：任务同步兼容修复与菜单逐项关闭。");
     }
     void Append(string message) {
         if(InvokeRequired) { BeginInvoke(new Action<string>(Append),message);return; }
