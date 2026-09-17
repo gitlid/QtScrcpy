@@ -411,3 +411,18 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${LINK_LIBS}
     QtScrcpyCore
 )
+
+# Exercise the actual VideoForm and OpenGL renderer, not a surrogate window.
+# This target is test-only and is never copied into the portable application.
+if(WIN32 AND BUILD_TESTING AND QSC_BUILD_ACTION_MACRO_TESTS)
+    set(QSC_VIEW_TEST_SOURCES ${QC_PROJECT_SOURCES})
+    list(REMOVE_ITEM QSC_VIEW_TEST_SOURCES main.cpp ${QC_PLANTFORM_SOURCES})
+    add_executable(viewform_orientation_tests ../tests/viewform_orientation_test.cpp
+        ${QSC_VIEW_TEST_SOURCES} ui/keymapeditor.cpp ui/keymapeditor.h)
+    target_include_directories(viewform_orientation_tests PRIVATE fontawesome util uibase ui render)
+    target_link_libraries(viewform_orientation_tests PRIVATE ${LINK_LIBS} QtScrcpyCore qsc_applications)
+    foreach(case_name IN ITEMS sequence skinned frameless preserve_selection bounds fullscreen maximized follow render)
+        add_test(NAME viewform_${case_name} COMMAND viewform_orientation_tests ${case_name})
+        set_tests_properties(viewform_${case_name} PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_OPENGL=software")
+    endforeach()
+endif()

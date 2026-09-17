@@ -40,7 +40,9 @@ void ToolForm::setSerial(const QString &serial)
         if (video && video->viewRotationSupported()) {
             const QPointer<VideoForm> view = video;
             m_rotationMenu->addViewRotation([view] { return view ? view->viewRotation() : 0; },
-                [view](int turns) { if (view) view->setViewRotation(turns); });
+                [view](int turns) { if (view) view->setViewRotation(turns); },
+                [view] { return view ? view->viewOrientationMode() : ViewOrientation::FollowPhone; },
+                [view](ViewOrientation::Mode mode) { if (view) view->setViewOrientationMode(mode); });
         }
         ui->rotateBtn->setMenu(m_rotationMenu);
         ui->rotateBtn->setToolTip(tr("旋转：手机横竖屏控制，或仅旋转投屏画面（不改变手机）"));

@@ -543,77 +543,115 @@ QMargins VideoForm::getMargins(bool vertical)
     return margins;
 }
 
-void VideoForm::setViewRotation(int turns)
+bool VideoForm::prepareViewChange()
 {
-    turns = qsc::ViewGeometry::normalized(turns);
-    if (!viewRotationSupported() || turns == m_viewRotation || m_frameSize.isEmpty()) return;
+    if (!viewRotationSupported() || m_frameSize.isEmpty()) return false;
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
-    if (!device || (m_appSession && m_appSession->closingApp())) return;
+    if (!device || (m_appSession && m_appSession->closingApp())) return false;
+    const QPointer<VideoForm> originalView(this);
     const QPointer<qsc::IDevice> originalDevice = device;
     if (device->isActionPlaying() || device->isActionRecording() || (m_appSession && m_appSession->locked())) {
-        if (QMessageBox::question(this, tr("旋转画面前停止预制操作"),
-            tr("只旋转电脑投屏，不修改手机方向。是否先停止当前宏/录制及自动切回？\n录制不会自动保存；取消则不旋转。"),
-            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes) return;
+        const auto answer = QMessageBox::question(this, tr("调整展示方向前停止预制操作"),
+            tr("只调整电脑投屏，不修改手机方向。是否先停止当前宏/录制及自动切回？\n录制不会自动保存；取消则不改变展示设置。"),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (!originalView || answer != QMessageBox::Yes) return false;
         device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
-        if (!originalDevice || device != originalDevice.data() || (m_appSession && !m_appSession->ready())) return;
+        if (!originalDevice || device != originalDevice.data() || (m_appSession && !m_appSession->ready())) return false;
         if (m_appSession) m_appSession->stopMacro();
         device->stopActionPlayback(); device->stopActionRecording();
     }
-    if (device->isActionPlaying() || device->isActionRecording() || (m_appSession && m_appSession->closingApp())) return;
+    if (device->isActionPlaying() || device->isActionRecording() || (m_appSession && m_appSession->closingApp())) return false;
     device->prepareKeymapEditing(); device->releaseKeyboard(); grabCursor(false);
-    m_viewRotation = turns; m_videoWidget->setViewRotation(turns);
-    const QSize source = m_frameSize;
-    m_frameSize = QSize(); // Recompute view aspect while keeping the decoder frame unchanged.
-    setMinimumSize(0, 0); updateShowSize(source);
+    return true;
+}
+
+void VideoForm::setViewRotation(int turns)
+{
+    const int delta = ViewOrientation::normalized(turns - m_viewRotation);
+    if (delta == 0 && m_viewOrientation.locked()) return;
+    if (!prepareViewChange()) return;
+    // The phone may have rotated while the confirmation dialog was open.
+    // Apply the requested relative turn to the latest source, not a stale size.
+    ViewOrientation next = m_viewOrientation;
+    next.selectRotation(m_viewRotation + delta);
+    applyViewOrientation(next);
+}
+
+void VideoForm::setViewOrientationMode(ViewOrientation::Mode mode)
+{
+    if (mode != ViewOrientation::FollowPhone && mode != ViewOrientation::KeepLandscape
+        && mode != ViewOrientation::KeepPortrait) return;
+    if (!prepareViewChange()) return;
+    ViewOrientation next = m_viewOrientation;
+    next.setMode(mode);
+    applyViewOrientation(next);
+}
+
+void VideoForm::applyViewOrientation(const ViewOrientation &orientation)
+{
+    const QSize previous = m_viewOrientation.viewSize();
+    m_viewOrientation = orientation;
+    m_viewOrientation.setSourceSize(m_frameSize);
+    const QSize next = m_viewOrientation.viewSize();
+    const bool axisChanged = (previous.width() > previous.height()) != (next.width() > next.height());
+    // An explicit axis change may resize once. Merely keeping the already
+    // selected landscape/portrait view must not reset the user's window.
+    setMinimumSize(0, 0);
+    updateViewLayout(axisChanged);
 }
 
 void VideoForm::updateShowSize(const QSize &newSize)
 {
     if (newSize.isEmpty()) return;
-    if (m_frameSize != newSize) {
-        m_frameSize = newSize;
+    if (newSize == m_frameSize && newSize == m_viewOrientation.sourceSize()) return;
+    m_frameSize = newSize; // Never substitute the rotated/display size here.
+    m_viewOrientation.setSourceSize(newSize);
+    updateViewLayout(!m_viewOrientation.locked());
+}
 
-        const QSize viewSize = qsc::ViewGeometry::sourceSize(newSize, m_viewRotation);
-        m_widthHeightRatio = 1.0f * viewSize.width() / viewSize.height();
-        ui->keepRatioWidget->setWidthHeightRatio(m_widthHeightRatio);
+void VideoForm::updateViewLayout(bool resizeWindow)
+{
+    const QSize viewSize = m_viewOrientation.viewSize();
+    if (viewSize.isEmpty()) return;
+    m_viewRotation = m_viewOrientation.rotation();
+    if (m_videoWidget) m_videoWidget->setViewRotation(m_viewRotation);
+    m_widthHeightRatio = 1.0f * viewSize.width() / viewSize.height();
+    ui->keepRatioWidget->setFitWithinBounds(m_viewOrientation.locked());
+    ui->keepRatioWidget->setWidthHeightRatio(m_widthHeightRatio);
+    const bool vertical = m_widthHeightRatio < 1.0f;
 
-        bool vertical = m_widthHeightRatio < 1.0f ? true : false;
-        QSize showSize = viewSize;
-        QRect screenRect = getScreenRect();
-        if (screenRect.isEmpty()) {
-            qWarning() << "getScreenRect is empty";
-            return;
-        }
-        if (vertical) {
-            showSize.setHeight(qMin(viewSize.height(), screenRect.height() - 200));
-            showSize.setWidth(showSize.height() * m_widthHeightRatio);
-        } else {
-            showSize.setWidth(qMin(viewSize.width(), screenRect.width() / 2));
-            showSize.setHeight(showSize.width() / m_widthHeightRatio);
-        }
-
-        if (isFullScreen() && qsc::IDeviceManage::getInstance().getDevice(m_serial)) {
-            switchFullScreen();
-        }
-
-        if (isMaximized()) {
-            showNormal();
-        }
-
-        if (m_skin) {
-            QMargins m = getMargins(vertical);
-            showSize.setWidth(showSize.width() + m.left() + m.right());
-            showSize.setHeight(showSize.height() + m.top() + m.bottom());
-        }
-        if (m_appBar) showSize.rheight() += m_appBar->height();
-
-        if (showSize != size()) {
-            resize(showSize);
-            if (m_skin) {
-                updateStyleSheet(vertical);
-            }
-            moveCenter();
-        }
+    if (m_viewOrientation.locked()) {
+        // Compensate 1080x2340 <-> 2340x1080 in the view only. Neither the
+        // window geometry nor its fullscreen/maximized state may oscillate.
+        setMinimumSize(0, 0);
+        if (m_skin && !isFullScreen()) updateStyleSheet(vertical);
+        if (isFullScreen() || isMaximized() || !resizeWindow) return;
+    }
+    if (!resizeWindow) return;
+    QSize showSize = viewSize;
+    const QRect screenRect = getScreenRect();
+    if (screenRect.isEmpty()) {
+        qWarning() << "getScreenRect is empty";
+        return;
+    }
+    if (vertical) {
+        showSize.setHeight(qMin(viewSize.height(), qMax(1, screenRect.height() - 200)));
+        showSize.setWidth(qMax(1, int(showSize.height() * m_widthHeightRatio)));
+    } else {
+        showSize.setWidth(qMin(viewSize.width(), qMax(1, screenRect.width() / 2)));
+        showSize.setHeight(qMax(1, int(showSize.width() / m_widthHeightRatio)));
+    }
+    if (isFullScreen() && qsc::IDeviceManage::getInstance().getDevice(m_serial)) switchFullScreen();
+    if (isMaximized()) showNormal();
+    if (m_skin) {
+        const QMargins margins = getMargins(vertical);
+        showSize += QSize(margins.left() + margins.right(), margins.top() + margins.bottom());
+        updateStyleSheet(vertical);
+    }
+    if (m_appBar) showSize.rheight() += m_appBar->height();
+    if (showSize != size()) {
+        resize(showSize);
+        moveCenter();
     }
 }
 
@@ -625,8 +663,8 @@ void VideoForm::onVideoSessionChanged(const QSize &size, bool clientResized)
         ui->keepRatioWidget->setWidthHeightRatio(-1.0f);
         return;
     }
-    // clientResized is only meaningful for flex display. Normal display
-    // rotations must retain the longstanding auto-resize behavior.
+    // clientResized is only meaningful for flex display. Desktop orientation
+    // locking is handled independently from the raw session/controller size.
     m_preventAutoResize = false;
     updateShowSize(size);
 }
@@ -658,7 +696,7 @@ void VideoForm::switchFullScreen()
 #endif
     } else {
         // 横屏全屏铺满全屏，不保持宽高比
-        if (m_widthHeightRatio > 1.0f) {
+        if (m_widthHeightRatio > 1.0f && !m_viewOrientation.locked()) {
             ui->keepRatioWidget->setWidthHeightRatio(-1.0f);
         }
 
@@ -1033,6 +1071,10 @@ void VideoForm::resizeEvent(QResizeEvent *event)
         }
         return;
     }
+
+    // A bounded, locked view letterboxes inside the user-selected rectangle;
+    // never grow that rectangle in response to a new phone aspect ratio.
+    if (m_viewOrientation.locked()) return;
 
     QSize goodSize = ui->keepRatioWidget->goodSize();
     if (goodSize.isEmpty()) {
