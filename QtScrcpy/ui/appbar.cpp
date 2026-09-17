@@ -1,5 +1,11 @@
 #include "appbar.h"
 #include "appsession.h"
+#include "apprecenttasks.h"
+#include "overflowapprow.h"
+#include <QApplication>
+#include <QClipboard>
+#include <QWidgetAction>
+#include <QSet>
 #include <QAction>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -49,8 +55,8 @@ AppBar::AppBar(AppSession *session, QWidget *parent) : QWidget(parent), m_sessio
         "#applicationBar QLabel { color:#aeb9c8; background:transparent; font-size:11px; }"
         "#applicationBar QToolButton#stopAppMacro { color:#ff9595; }"));
     m_tabs = new QTabBar(this); m_tabs->setObjectName("phoneAppTabs");
-    m_tabs->setExpanding(false); m_tabs->setUsesScrollButtons(true); m_tabs->setElideMode(Qt::ElideRight);
-    m_tabs->setTabsClosable(true); m_tabs->setFocusPolicy(Qt::NoFocus); m_tabs->setIconSize(QSize(19, 19));
+    m_tabs->setExpanding(false); m_tabs->setUsesScrollButtons(false); m_tabs->setElideMode(Qt::ElideRight);
+    m_tabs->setTabsClosable(false); m_tabs->setFocusPolicy(Qt::NoFocus); m_tabs->setIconSize(QSize(19, 19));
     // A long catalog must not force the whole video window wider than its screen.
     m_tabs->setMinimumWidth(0); m_tabs->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     m_tabs->installEventFilter(this);
@@ -71,6 +77,18 @@ AppBar::AppBar(AppSession *session, QWidget *parent) : QWidget(parent), m_sessio
     row->addWidget(m_tabs, 1); row->addWidget(m_more); row->addWidget(m_add);
     row->addWidget(m_keys); row->addWidget(m_macros); row->addWidget(m_stop);
     m_status = new QLabel(session->status(), this); m_status->setTextFormat(Qt::PlainText); m_status->setMargin(3);
+    m_status->setObjectName("appSyncStatus");
+    m_status->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_status, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        const QPointer<AppRecentTasks> tasks = m_session ? m_session->findChild<AppRecentTasks *>() : nullptr;
+        if (!tasks) return;
+        QMenu menu;
+        auto *retry = menu.addAction(tr("立即重试最近任务同步"));
+        auto *copy = menu.addAction(tr("复制同步诊断（不含脚本和任务正文）"));
+        const auto *choice = menu.exec(m_status->mapToGlobal(pos));
+        if (tasks && choice == retry) tasks->refresh();
+        if (tasks && choice == copy) QApplication::clipboard()->setText(tasks->diagnostics());
+    });
     m_status->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     auto *layout = new QVBoxLayout(this); layout->setContentsMargins(0, 0, 0, 0); layout->setSpacing(0);
     layout->addLayout(row); layout->addWidget(m_status);
@@ -98,6 +116,9 @@ AppBar::AppBar(AppSession *session, QWidget *parent) : QWidget(parent), m_sessio
 }
 void AppBar::wheelEvent(QWheelEvent *event) { event->accept(); }
 bool AppBar::eventFilter(QObject *object, QEvent *event) {
+    if (object == m_tabs && event->type() == QEvent::Wheel) {
+        event->accept(); return true; // Overflow is accessed only through >, not scroll buttons/wheel.
+    }
     switch (event->type()) {
     case QEvent::Resize: case QEvent::Show: case QEvent::Hide: case QEvent::LayoutRequest:
     case QEvent::FontChange: case QEvent::StyleChange: case QEvent::MouseButtonRelease: case QEvent::Wheel:
@@ -117,46 +138,60 @@ void AppBar::updateOverflow() {
     const bool overflowing = m_tabs->sizeHint().width() > availableWithoutButton;
     m_more->setVisible(overflowing);
     m_more->setEnabled(m_session && m_session->ready());
-    for (auto *scroll : m_tabs->findChildren<QToolButton *>(QString(), Qt::FindDirectChildrenOnly))
-        scroll->installEventFilter(this);
-    if (!m_overflow->isVisible()) populateOverflow();
+    populateOverflow();
 }
 void AppBar::populateOverflow() {
-    const auto previousMenus = m_overflow->findChildren<QMenu *>(QString(), Qt::FindDirectChildrenOnly);
-    for (auto *menu : previousMenus) delete menu;
-    m_overflow->clear();
     if (!m_session) return;
-    QRegion visible(m_tabs->rect());
-    for (auto *scroll : m_tabs->findChildren<QToolButton *>(QString(), Qt::FindDirectChildrenOnly)) {
-        if (scroll->isVisible()) visible = visible.subtracted(QRegion(scroll->geometry()));
-    }
-    int count = 0;
-    auto *closeMenu = new QMenu(tr("关闭后台应用（强制停止）"), m_overflow);
-    closeMenu->setObjectName("closeHiddenPhoneApps");
+    // This method runs on a queued refresh or aboutToShow. Reuse actions by
+    // package so an open menu stays current without deleting a pressed widget.
+    QHash<QString, QAction *> existing;
+    for (auto *action : m_overflow->actions()) existing.insert(action->data().toString(), action);
+    QSet<QString> wanted;
+    const QRegion visible(m_tabs->rect());
+    int count = 0; QList<QAction *> ordered;
     for (int index = 1; index < m_tabs->count(); ++index) {
         const QString packageName = m_tabs->tabData(index).toString();
         const QString name = m_session->label(packageName);
         const QRect bounds = m_tabs->tabRect(index);
         const int textWidth = m_tabs->fontMetrics().horizontalAdvance(name) + 24 + m_tabs->iconSize().width() + 24;
-        const bool clipped = bounds.isEmpty() || !QRegion(bounds).subtracted(visible).isEmpty() || textWidth > bounds.width();
-        if (!clipped) continue;
-        auto *action = m_overflow->addAction(badge(name, packageName), literalCaption(name));
-        action->setData(packageName); action->setToolTip(name + '\n' + packageName);
-        action->setCheckable(true); action->setChecked(packageName == m_session->foreground());
-        action->setEnabled(m_session->ready());
-        const QPointer<AppSession> session = m_session;
-        connect(action, &QAction::triggered, this, [session, packageName] { if (session) session->activate(packageName); });
-        auto *closeAction = closeMenu->addAction(badge(name, packageName), literalCaption(name));
-        closeAction->setData(packageName); closeAction->setToolTip(name + '\n' + packageName);
-        closeAction->setEnabled(m_session->canCloseApp(packageName));
-        connect(closeAction, &QAction::triggered, this, [this, packageName] { confirmCloseApp(packageName); });
-        ++count;
+        if (!bounds.isEmpty() && QRegion(bounds).subtracted(visible).isEmpty() && textWidth <= bounds.width()) continue;
+        wanted.insert(packageName); ++count;
+        auto *action = existing.value(packageName);
+        OverflowAppRow *row = nullptr;
+        if (!action) {
+            auto *widgetAction = new QWidgetAction(m_overflow); action = widgetAction;
+            row = new OverflowAppRow; row->setFixedWidth(320);
+            widgetAction->setDefaultWidget(row); action->setData(packageName); action->setCheckable(true);
+            m_overflow->addAction(action);
+            const QPointer<AppSession> session = m_session;
+            connect(action, &QAction::triggered, this, [this, session, packageName] {
+                m_overflow->hide(); if (session && session->ready()) session->activate(packageName);
+            });
+            connect(row->launch, &QPushButton::clicked, action, &QAction::trigger);
+            connect(row->close, &QToolButton::clicked, this, [this, packageName] {
+                m_overflow->hide();
+                QTimer::singleShot(0, this, [this, packageName] { confirmCloseApp(packageName); });
+            });
+        } else {
+            row = static_cast<OverflowAppRow *>(static_cast<QWidgetAction *>(action)->defaultWidget());
+        }
+        ordered.append(action);
+        action->setText(literalCaption(name)); action->setToolTip(name + '\n' + packageName);
+        action->setChecked(packageName == m_session->foreground()); action->setEnabled(m_session->ready());
+        row->updateEntry(packageName, name, badge(name, packageName), packageName == m_session->foreground(),
+                         m_session->ready(), m_session->canCloseApp(packageName));
     }
-    if (count) { m_overflow->addSeparator(); m_overflow->addMenu(closeMenu); }
-    else delete closeMenu;
+    for (auto it = existing.begin(); it != existing.end(); ++it) if (!wanted.contains(it.key())) {
+        it.value()->setEnabled(false); m_overflow->removeAction(it.value()); it.value()->deleteLater();
+    }
+    for (int i = 0; i < ordered.size(); ++i) {
+        const auto actions = m_overflow->actions();
+        if (i < actions.size() && actions[i] != ordered[i]) m_overflow->insertAction(actions[i], ordered[i]);
+    }
     if (!count) m_overflow->addAction(tr("没有隐藏的应用"))->setEnabled(false);
-    m_more->setToolTip(tr("更多应用：%1 个标签未完整显示").arg(count));
+    m_more->setToolTip(tr("更多应用：%1 个标签未完整显示；点名称切换，点 × 关闭").arg(count));
 }
+
 void AppBar::refreshStatus() {
     if (!m_session) return;
     const auto text = m_session->status() + QStringLiteral(" · ") + m_session->taskStatus();
@@ -164,19 +199,34 @@ void AppBar::refreshStatus() {
 }
 void AppBar::confirmCloseApp(const QString &packageName) {
     const QPointer<AppSession> session = m_session;
-    if (!session || !session->canCloseApp(packageName)) return;
+    if (m_confirmingClose || !session || !session->canCloseApp(packageName)) return;
+    const QPointer<AppBar> self = this;
+    const QPointer<AppRecentTasks> tasks = session->findChild<AppRecentTasks *>();
+    if (!tasks) return;
+    const auto context = tasks->contextRevision();
+    m_confirmingClose = true;
     const auto answer = QMessageBox::question(this, tr("关闭手机应用"),
         tr("关闭“%1”（%2）？\n这会强制停止该应用，不是只隐藏标签，也不会卸载或清除数据。\n"
            "未保存的操作可能丢失，后台通知可能停止，直到再次打开应用。\n"
            "继续还会停止当前宏、录制和自动切回任务；录制不会自动保存。")
             .arg(session->label(packageName), packageName),
         QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
-    if (answer == QMessageBox::Yes && session) session->closeApp(packageName);
+    if (!self) return;
+    m_confirmingClose = false;
+    if (answer == QMessageBox::Yes && session && tasks && tasks->contextRevision() == context)
+        session->closeApp(packageName);
 }
 void AppBar::refresh() {
     if (!m_session) return;
+    refreshStatus();
     const QSignalBlocker blocker(m_tabs);
-    while (m_tabs->count()) m_tabs->removeTab(0);
+    while (m_tabs->count()) {
+        for (auto side : {QTabBar::LeftSide, QTabBar::RightSide}) {
+            auto *button = m_tabs->tabButton(0, side);
+            if (button) { m_tabs->setTabButton(0, side, nullptr); button->deleteLater(); }
+        }
+        m_tabs->removeTab(0);
+    }
     m_tabs->addTab(tr("手机桌面")); m_tabs->setTabData(0, QString());
     m_tabs->setTabButton(0, QTabBar::RightSide, nullptr); m_tabs->setTabButton(0, QTabBar::LeftSide, nullptr);
     int current = -1;
@@ -184,6 +234,17 @@ void AppBar::refresh() {
         const auto name = m_session->label(packageName);
         const int index = m_tabs->addTab(badge(name, packageName), literalCaption(name));
         m_tabs->setTabData(index, packageName); m_tabs->setTabToolTip(index, name + '\n' + packageName + tr("\n×：关闭手机应用（需确认）"));
+        // Explicit text button instead of the platform's tiny/ambiguous close icon.
+        m_tabs->setTabButton(index, QTabBar::LeftSide, nullptr);
+        auto *close = new QToolButton(m_tabs); close->setObjectName("closePhoneAppTab");
+        close->setText(QString::fromUtf8("×")); close->setFixedSize(24, 24);
+        close->setStyleSheet("padding:0; font-size:18px;"); close->setFocusPolicy(Qt::NoFocus);
+        close->setEnabled(m_session->canCloseApp(packageName));
+        close->setAccessibleName(tr("关闭 %1").arg(name)); close->setToolTip(tr("关闭 %1（需确认）").arg(name));
+        connect(close, &QToolButton::clicked, this, [this, packageName] {
+            QTimer::singleShot(0, this, [this, packageName] { confirmCloseApp(packageName); });
+        });
+        m_tabs->setTabButton(index, QTabBar::RightSide, close);
         if (packageName == m_session->foreground()) current = index;
     }
     m_tabs->setCurrentIndex(current);

@@ -18,6 +18,8 @@ public:
     bool hasSnapshot() const { return m_hasSnapshot; }
     QStringList packages() const { return m_packages; }
     QString status() const { return m_status; }
+    QString diagnostics() const { return m_diagnostics; }
+    quint64 contextRevision() const { return m_contextRevision; }
     bool closing() const { return !m_closingPackage.isEmpty(); }
     bool canClose(const QString &packageName) const;
     bool closePackage(const QString &packageName);
@@ -35,6 +37,8 @@ private:
     QString nextTag(const QString &kind);
     AppCommands *m_commands;
     QString m_serial, m_pollTag, m_closeTag, m_closingPackage, m_status;
+    QString m_diagnostics;
+    quint64 m_contextRevision = 0;
     QStringList m_packages;
     QTimer m_timer;
     QElapsedTimer m_lastSuccess;

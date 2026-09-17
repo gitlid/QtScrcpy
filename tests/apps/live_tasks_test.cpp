@@ -5,6 +5,10 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QAbstractButton>
+#include <QWidgetAction>
+#include <QLabel>
+#include "../../QtScrcpy/ui/recentsnapshot.h"
+#include "../../QtScrcpy/ui/overflowapprow.h"
 #include "../../QtScrcpy/ui/apprecenttasks.h"
 #include "../../QtScrcpy/ui/devicerotationmenu.h"
 #include "../../QtScrcpy/QtScrcpyCore/include/viewgeometry.h"
@@ -148,19 +152,111 @@ void overflowClose(bool accept) {
     sync(f,tasks); AppBar bar(&f.session); bar.resize(420,66); bar.show(); wait(80);
     auto *menu=bar.findChild<QMenu *>("hiddenPhoneApps"); require(menu,"overflow menu");
     QMetaObject::invokeMethod(menu,"aboutToShow",Qt::DirectConnection);
-    auto *close=menu->findChild<QMenu *>("closeHiddenPhoneApps"); require(close && !close->actions().isEmpty(),"separate close submenu available");
-    QAction *action=close->actions().first(); require(action->isEnabled(),"verified task is closeable");
-    QAction *switchAction=nullptr; for(auto *a:menu->actions()) if(a->data()==action->data()) switchAction=a;
-    require(switchAction && switchAction->isEnabled(),"direct switching remains available for same app");
+    require(!menu->findChild<QMenu *>("closeHiddenPhoneApps"),"no separate close submenu");
+    auto *action = qobject_cast<QWidgetAction *>(menu->actions().first());
+    require(action && action->isEnabled(),"verified task has a switchable widget row");
+    auto *row = static_cast<OverflowAppRow *>(action->defaultWidget());
+    require(row->close->isEnabled() && row->close->property("package") == action->data(),"same row closes the same app");
+    const int launches = f.commands.launches();
     QTimer answer; answer.setInterval(10);
     QObject::connect(&answer,&QTimer::timeout,&bar,[accept]{
         auto *box=qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
         if(box && box->button(accept?QMessageBox::Yes:QMessageBox::Cancel)) box->button(accept?QMessageBox::Yes:QMessageBox::Cancel)->click();
-    }); answer.start(); action->trigger();
+    }); answer.start(); row->close->click(); wait(80);
     require(!pendingTag(f.commands,"close").isEmpty()==accept,"only explicit confirmation sends force-stop");
     QMetaObject::invokeMethod(menu,"aboutToShow",Qt::DirectConnection);
-    require(menu->findChildren<QMenu *>("closeHiddenPhoneApps").size()==1,"refresh does not leak old submenu objects");
+    require(menu->findChildren<QMenu *>("closeHiddenPhoneApps").isEmpty(),"refresh cannot recreate removed submenu");
+    require(f.commands.launches() == launches,"clicking x never launches an app");
 }
+void wrappedComponents() {
+    QStringList out; int user = -1; QString why;
+    for (const QString &field : {QString("realActivity"),QString("mActivityComponent"),QString("mRealActivity")}) {
+        QString t=task(first); t.replace("userId=", "mUserId = "); t.replace("U=0", "u0");
+        t.replace("realActivity=com.example.game/.Main",field+" = ComponentInfo{com.example.game/.Main}");
+        require(RecentSnapshot::parse(snapshot(t),&out,&user,&why) && out==QStringList({first}),"wrapped components and explicit ROM user fields");
+    }
+}
+void intentFallback() {
+    QStringList out; int user=-1;
+    const QString t=QString(task(first)).replace("realActivity=com.example.game/.Main","intent={act=android.intent.action.MAIN cmp=com.example.game/.Main}");
+    require(AppRecentTasks::parse(snapshot(t),&out,&user) && out==QStringList({first}),"root Intent component fallback");
+    const QString unsafe=QString(task(first)).replace("realActivity=com.example.game/.Main","affinity=com.example.game\n      * Hist #0: ActivityRecord{child u10 com.other.app/.Main}\n        realActivity=com.other.app/.Main");
+    require(!AppRecentTasks::parse(snapshot(unsafe),&out,&user),"never use affinity or child activity identity");
+}
+void visibleFallback() {
+    QStringList out; int user=-1;
+    const QString info="  Visible recent tasks (most recent first):\n  * RecentTaskInfo #0:\n    id=8 userId=0 hasTask=true\n    realActivity={com.example.game/.Main}\n    activityType=standard\n";
+    require(AppRecentTasks::parse(snapshot(info),&out,&user) && out==QStringList({first}),"visible-only ROM uses explicit RecentTaskInfo identity");
+    require(AppRecentTasks::parse(snapshot("  * Recent #0: VendorTask{unsupported}\n"+info),&out,&user) && out==QStringList({first}),"visible section safely recovers an unsupported primary format");
+    require(!AppRecentTasks::parse(snapshot(QString(info).replace("userId=0","missingUser=0")),&out,&user),"visible fallback must still validate user");
+}
+void exceptionName() {
+    QStringList out;int user=-1;
+    require(AppRecentTasks::parse(snapshot(task("com.example.ExceptionDemo")),&out,&user),"Exception in an app identifier is not a command failure");
+    require(!AppRecentTasks::parse(snapshot(task(first)+"java.lang.SecurityException: denied\n"),&out,&user),"actual Java exception still fails");
+}
+void nullTasks() {
+    QStringList out;int user=-1;
+    const QString empty=QString(task(first)).replace("realActivity=com.example.game/.Main","mActivityComponent=null");
+    require(AppRecentTasks::parse(snapshot(empty+task(second,1)),&out,&user) && out==QStringList({second}),"explicit tombstones do not break the entire list");
+    require(!AppRecentTasks::parse(snapshot(QString(task(first)).replace("userId=0","mUserId=10")),&out,&user),"conflicting task user fields are rejected");
+}
+void diagnostics() {
+    TaskFixture f; f.feed(snapshot(task(first))); const auto before=f.tasks.packages();
+    f.feed(snapshot(QString(task(first)).replace("realActivity=", "unsupportedField=")));
+    require(f.tasks.packages()==before && !f.tasks.canClose(first),"invalid response does not silently empty or authorize closing");
+    require(f.tasks.diagnostics().contains("component-missing") && f.tasks.status().contains("component-missing"),"parser failure now has an actionable reason");
+    require(!f.tasks.diagnostics().contains(first) && !f.tasks.diagnostics().contains("Intent"),"diagnostics omit app/task contents");
+    f.feed(snapshot(task(first)));require(f.tasks.canClose(first),"next good read recovers close permissions");
+}
+void noScrollButtons() {
+    Fixture f; QString more=catalog;
+    for(int i=0;i<16;++i) more+=QString("com.extra.app%1/.Main\n").arg(i);
+    f.session.refreshApps(); f.commands.complete("catalog",more);
+    for(int i=0;i<16;++i) f.session.bindKeymap(QString("com.extra.app%1").arg(i),QString());
+    AppBar bar(&f.session);bar.resize(420,66);bar.show();wait(80);
+    auto *tabs=bar.findChild<QTabBar *>("phoneAppTabs");
+    require(tabs && !tabs->usesScrollButtons(),"native left/right tab scrolling disabled");
+    for(auto *b:tabs->findChildren<QToolButton *>()) if(b->arrowType()!=Qt::NoArrow) require(!b->isVisible(),"neither native arrow visible");
+    require(bar.findChild<QToolButton *>("morePhoneApps")->isVisible(),"overflow remains reachable");
+}
+void statusNameRefresh() {
+    Fixture f; f.focus(first); AppBar bar(&f.session);bar.show();wait(20);
+    f.session.refreshApps();f.commands.complete("catalog",catalog);
+    f.commands.complete("names",QString::fromUtf8(" - 已读取的新名称    com.example.game\n - Tools    com.example.tools\n"));
+    require(f.session.status().contains(QString::fromUtf8("已读取的新名称")),"same foreground name refresh updates status");
+    require(bar.findChild<QLabel *>("appSyncStatus")->text().contains(QString::fromUtf8("已读取的新名称")),"status widget follows name updates independently of recents");
+}
+void openMenuRefresh() {
+    Fixture f;QString list=catalog,tasks,names;
+    for(int i=0;i<10;++i){const auto p=QString("com.extra.app%1").arg(i);list+=p+"/.Main\n";tasks+=task(p,i);names+=QString(" - Application %1    %2\n").arg(i).arg(p);}
+    f.session.refreshApps();f.commands.complete("catalog",list);f.commands.complete("names",names);sync(f,tasks);
+    AppBar bar(&f.session);bar.resize(420,66);bar.show();wait(80);
+    auto *menu=bar.findChild<QMenu *>("hiddenPhoneApps");menu->popup(bar.mapToGlobal(QPoint(80,66)));wait(80);
+    auto *a=qobject_cast<QWidgetAction *>(menu->actions().last());require(a,"widget menu row");
+    const QString removed=a->data().toString();
+    const auto remaining=QString(tasks).replace(task(removed,9),QString());
+    sync(f,remaining);wait(80);
+    for(auto *entry:menu->actions()) require(entry->data().toString()!=removed,"open menu removes phone-dismissed tasks after successful sync");
+    const auto file=qgetenv("QSC_APPBAR_SCREENSHOT");
+    if(!file.isEmpty()) { bar.grab().save(QString::fromLocal8Bit(file)+"-bar.png"); menu->grab().save(QString::fromLocal8Bit(file)+"-menu.png"); }
+    menu->hide();
+}
+void modalUserGuard() {
+    Fixture f;sync(f,task(first));AppBar bar(&f.session);bar.show();wait(50);
+    auto *tabs=bar.findChild<QTabBar *>("phoneAppTabs");
+    QTimer answer;answer.setInterval(10);
+    QObject::connect(&answer,&QTimer::timeout,&bar,[&]{
+        auto *box=qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+        if(!box)return;
+        auto *recent=f.session.findChild<AppRecentTasks *>();recent->refresh();
+        reply(f.commands,"snapshot",snapshot(task(first,0,10),10));
+        box->button(QMessageBox::Yes)->click();
+    });answer.start();
+    QMetaObject::invokeMethod(tabs,"tabCloseRequested",Qt::DirectConnection,Q_ARG(int,1));
+    require(pendingTag(f.commands,"close").isEmpty(),"confirmation for old Android user cannot close same package in another user");
+}
+
 void geometry() {
     for(int turn=0;turn<4;++turn) {
         const QSize view(321,643); const QSize raw=qsc::ViewGeometry::sourceSize(view,turn);
@@ -205,6 +301,9 @@ int main(int argc,char **argv) {
         {"malformed",malformed},{"home",homeFiltered},{"sync",liveTabs},{"failure",taskFailure},{"polling",boundedPolling},
         {"close",closeApp},{"close_failure",closeFailure},{"close_retained",closeRetained},{"close_guard",closeGuard},{"close_stale",closeStale},
         {"menu_cancel",[]{overflowClose(false);}},{"menu_close",[]{overflowClose(true);}},
+        {"wrapped",wrappedComponents},{"intent_fallback",intentFallback},{"visible_fallback",visibleFallback},
+        {"exception_name",exceptionName},{"null_tasks",nullTasks},{"diagnostics",diagnostics},{"no_scroll",noScrollButtons},
+        {"status_refresh",statusNameRefresh},{"open_menu",openMenuRefresh},{"modal_user",modalUserGuard},
         {"geometry",geometry},{"wheel",wheel},{"cursor",cursor},{"local_menu",localMenu}};
     int ran=0,failed=0;for(const auto &t:tests){if(argc>1&&QString::fromLocal8Bit(argv[1])!=t.first)continue;++ran;
         try{t.second();std::fprintf(stdout,"PASS %s\n",qPrintable(t.first));}

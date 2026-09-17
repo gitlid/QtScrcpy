@@ -1,7 +1,7 @@
 name: Script-safe Windows updater
 on:
   push:
-    branches: [feature/script-safe-overlay-updater]
+    branches: [feature/script-safe-overlay-updater, feature/live-tabs-rom-fix]
     paths: ['tools/updater/**', '.github/workflows/script-safe-updater.yml']
   workflow_dispatch:
 permissions:
@@ -24,18 +24,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Retrieve previously verified 0.4.3 program package
+      - name: Retrieve previously verified 0.4.4 program package
+        uses: actions/download-artifact@v4
+        with:
+          name: QtScrcpy-Keymapper-win64
+          run-id: 35190929124
+          github-token: ${{ github.token }}
+          path: baseline
+      - name: Retrieve old 0.4.3 package for real upgrade regression
         uses: actions/download-artifact@v4
         with:
           name: QtScrcpy-Keymapper-win64
           run-id: 35184471174
           github-token: ${{ github.token }}
-          path: baseline
+          path: old-release
       - name: Verify payload and compile committed updater sources
         run: |
           $ErrorActionPreference='Stop'
-          $payload=(Resolve-Path 'baseline/QtScrcpy-keymapper-0.4.3-rc.1-win64.zip').Path
-          $expected='ed4a5b091485b9d3a8f7871e983e1d0a2dfdb44141866fd46edea82230278d04'
+          $payload=(Resolve-Path 'baseline/QtScrcpy-keymapper-0.4.4-rc.1-win64.zip').Path
+          $expected='1e966081f8f5ce03a1ca518c5b7c008b1cc7da7d1de4ffbcfd4ac4a612213e41'
           if((Get-FileHash $payload -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected){throw 'Unverified payload'}
           New-Item -ItemType Directory out,dist -Force | Out-Null
           $csc=Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
@@ -44,6 +51,7 @@ jobs:
           $gui=(Resolve-Path 'tools/updater/UpdaterGui.cs').Path
           $tests=(Resolve-Path 'tools/updater/UpdaterTests.cs').Path
           $faults=(Resolve-Path 'tools/updater/UpdaterFailureTests.cs').Path
+          $upgrade=(Resolve-Path 'tools/updater/UpdaterUpgradeTest.cs').Path
           $manifest=(Resolve-Path 'tools/updater/updater.manifest').Path
           $output=(Resolve-Path out).Path
           $common=@('/nologo','/utf8output','/codepage:65001','/warnaserror+','/platform:x64',"/lib:$refs",'/r:System.dll','/r:System.Core.dll','/r:System.Xml.dll','/r:System.Xml.Linq.dll','/r:System.IO.Compression.dll','/r:System.IO.Compression.FileSystem.dll')
@@ -53,16 +61,21 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Test compilation failed'}
           & $csc @common /target:exe /define:UPDATER_TEST "/out:$output\UpdaterFailureTests.exe" $core $faults
           if($LASTEXITCODE -ne 0){throw 'Fault test compilation failed'}
+          & $csc @common /target:exe "/out:$output\UpdaterUpgradeTest.exe" $core $upgrade
+          if($LASTEXITCODE -ne 0){throw 'Real upgrade test compilation failed'}
           '<?xml version="1.0" encoding="utf-8"?><configuration><startup><supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8"/></startup></configuration>' | Set-Content out/QtScrcpyUpdate.exe.config -Encoding utf8
           git diff --exit-code
           if($LASTEXITCODE -ne 0){throw 'Build changed tracked source files'}
       - name: Windows file safety and real-payload integration tests
         run: |
-          $payload=(Resolve-Path 'baseline/QtScrcpy-keymapper-0.4.3-rc.1-win64.zip').Path
+          $payload=(Resolve-Path 'baseline/QtScrcpy-keymapper-0.4.4-rc.1-win64.zip').Path
           & ./out/UpdaterTests.exe $payload 2>&1 | Tee-Object out/updater-tests.log
           if($LASTEXITCODE -ne 0){throw 'Updater regression failed'}
           & ./out/UpdaterFailureTests.exe 2>&1 | Tee-Object out/fault-matrix.log
           if($LASTEXITCODE -ne 0){throw 'Fault matrix failed'}
+          $old=(Resolve-Path 'old-release/QtScrcpy-keymapper-0.4.3-rc.1-win64.zip').Path
+          & ./out/UpdaterUpgradeTest.exe $payload $old 2>&1 | Tee-Object out/real-upgrade.log
+          if($LASTEXITCODE -ne 0){throw 'Real 0.4.3 to 0.4.4 upgrade regression failed'}
       - name: Check embedded payload and native GUI startup
         run: |
           $ErrorActionPreference='Stop'
@@ -108,11 +121,11 @@ jobs:
           Copy-Item tools/updater/README.zh-CN.md out/README.zh-CN.md
           $hash=(Get-FileHash out/QtScrcpyUpdate.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  QtScrcpyUpdate.exe" | Set-Content out/QtScrcpyUpdate.exe.sha256 -Encoding ascii
-          @{updaterVersion='1.0.0';applicationVersion='0.4.3-rc.1';sourceCommit=$env:GITHUB_SHA;runId=$env:GITHUB_RUN_ID;payloadSourceCommit='bd68e9d6df7b2608795ba8202b4010d0bcbeb1c9';payloadBuildCommit='a4c4e7324d815d0cf6a8e4588fce72a9563bbc89';payloadSHA256='ed4a5b091485b9d3a8f7871e983e1d0a2dfdb44141866fd46edea82230278d04';updaterSHA256=$hash;deviceTested=$false;digitalSignature=$false} | ConvertTo-Json | Set-Content out/update-build-info.json -Encoding utf8
+          @{updaterVersion='1.1.0';applicationVersion='0.4.4-rc.1';sourceCommit=$env:GITHUB_SHA;runId=$env:GITHUB_RUN_ID;payloadSourceCommit='ab948f24364a43b52c7d4722a654edb11f307f0a';payloadBuildCommit='ab948f24364a43b52c7d4722a654edb11f307f0a';payloadSHA256='1e966081f8f5ce03a1ca518c5b7c008b1cc7da7d1de4ffbcfd4ac4a612213e41';updaterSHA256=$hash;deviceTested=$false;digitalSignature=$false} | ConvertTo-Json | Set-Content out/update-build-info.json -Encoding utf8
           $files=@('out/QtScrcpyUpdate.exe','out/QtScrcpyUpdate.exe.config','out/QtScrcpyUpdate.exe.sha256','out/README.zh-CN.md','out/update-build-info.json')
-          Compress-Archive -Path $files -DestinationPath dist/QtScrcpy-0.4.3-script-safe-update-win64.zip
-          $zipHash=(Get-FileHash dist/QtScrcpy-0.4.3-script-safe-update-win64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$zipHash  QtScrcpy-0.4.3-script-safe-update-win64.zip" | Set-Content dist/QtScrcpy-0.4.3-script-safe-update-win64.zip.sha256 -Encoding ascii
+          Compress-Archive -Path $files -DestinationPath dist/QtScrcpy-0.4.4-script-safe-update-win64.zip
+          $zipHash=(Get-FileHash dist/QtScrcpy-0.4.4-script-safe-update-win64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$zipHash  QtScrcpy-0.4.4-script-safe-update-win64.zip" | Set-Content dist/QtScrcpy-0.4.4-script-safe-update-win64.zip.sha256 -Encoding ascii
       - uses: actions/upload-artifact@v4
         with:
           name: QtScrcpy-script-safe-update-win64

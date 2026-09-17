@@ -40,7 +40,15 @@ public:
     QString foreground() const { return m_foreground; }
     QString label(const QString &packageName) const;
     AppBinding binding(const QString &packageName) const;
-    QString status() const { return m_status; }
+    QString status() const {
+        // Name retrieval is asynchronous; the foreground may not change after it
+        // succeeds. Resolve a foreground caption at display time, not only on focus.
+        if (m_status.startsWith(tr("当前："))) {
+            return m_apps.contains(m_foreground) ? tr("当前：%1").arg(label(m_foreground))
+                : tr("当前：桌面或无启动入口的界面");
+        }
+        return m_status;
+    }
     // Historical API name: a target is guarded, NOT a prohibition on navigation.
     bool locked() const { return !m_target.isEmpty(); }
     bool preparing() const { return bool(m_pendingStart); }
