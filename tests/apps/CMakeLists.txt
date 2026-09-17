@@ -10,6 +10,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(APP_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../QtScrcpy)
     add_library(qsc_applications STATIC
         ${APP_ROOT}/ui/appsession.cpp ${APP_ROOT}/ui/appsession.h ${APP_ROOT}/ui/appbar.cpp ${APP_ROOT}/ui/appbar.h
+        ${APP_ROOT}/ui/apprecenttasks.cpp ${APP_ROOT}/ui/apprecenttasks.h
         ${APP_ROOT}/ui/devicerotation.cpp ${APP_ROOT}/ui/devicerotation.h
         ${APP_ROOT}/ui/devicerotationmenu.cpp ${APP_ROOT}/ui/devicerotationmenu.h
         ${APP_ROOT}/QtScrcpyCore/include/QtScrcpyCore.h ${APP_ROOT}/QtScrcpyCore/include/adbprocess.h
@@ -19,6 +20,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(qsc_applications PUBLIC Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
     if(MSVC)
         target_compile_options(qsc_applications PRIVATE /utf-8 /W3 /WX)
+        # Qt 5.15 uses MSVC checked iterators deprecated by the 2025+ STL.
+        # Limit suppression to that vendor extension; keep all other /WX checks.
+        if(QT_VERSION_MAJOR EQUAL 5)
+            target_compile_definitions(qsc_applications PUBLIC _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING)
+        endif()
     endif()
 endif()
 add_executable(app_session_tests app_session_test.cpp)
@@ -67,4 +73,34 @@ if(WIN32)
     # dialog icons. Exercise both confirmation paths on the real Windows backend.
     set_tests_properties(rotation_menu_cancel_macro rotation_menu_stop_macro
         PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+endif()
+
+add_executable(live_tasks_tests live_tasks_test.cpp)
+set_target_properties(live_tasks_tests PROPERTIES AUTOMOC ON CXX_STANDARD 11)
+target_link_libraries(live_tasks_tests PRIVATE qsc_applications)
+if(MSVC)
+    target_compile_options(live_tasks_tests PRIVATE /utf-8 /W3 /WX)
+endif()
+foreach(case_name IN ITEMS parse_legacy parse_modern users empty malformed home sync failure polling
+    close close_failure close_retained close_guard close_stale menu_cancel menu_close geometry wheel cursor local_menu)
+    add_test(NAME liveapps_${case_name} COMMAND live_tasks_tests ${case_name})
+    set_tests_properties(liveapps_${case_name} PROPERTIES TIMEOUT 20 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endforeach()
+if(WIN32)
+    set_tests_properties(liveapps_menu_cancel liveapps_menu_close PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+endif()
+add_executable(view_render_test view_render_test.cpp ../../QtScrcpy/render/qyuvopenglwidget.cpp ../../QtScrcpy/render/qyuvopenglwidget.h)
+set_target_properties(view_render_test PROPERTIES AUTOMOC ON CXX_STANDARD 11)
+target_link_libraries(view_render_test PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+if(QT_VERSION_MAJOR EQUAL 6)
+    find_package(Qt6 REQUIRED COMPONENTS OpenGLWidgets)
+    target_link_libraries(view_render_test PRIVATE Qt6::OpenGLWidgets)
+endif()
+if(MSVC)
+    target_compile_options(view_render_test PRIVATE /utf-8 /W3 /WX)
+endif()
+add_test(NAME view_render COMMAND view_render_test)
+set_tests_properties(view_render PROPERTIES TIMEOUT 30)
+if(WIN32)
+    set_tests_properties(view_render PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows;QT_OPENGL=software")
 endif()

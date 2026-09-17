@@ -34,7 +34,7 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
           QT_QPA_PLATFORM: offscreen
         run: |
-          ctest --test-dir build-rotation -R '^rotation_' --output-on-failure --output-junit rotation-results.xml
+          ctest --test-dir build-rotation -R '^(rotation_|liveapps_)' --output-on-failure --output-junit rotation-results.xml
           git diff --exit-code
       - name: Preserve sources for review
         if: always()

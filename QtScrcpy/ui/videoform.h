@@ -39,6 +39,9 @@ public:
     void switchFullScreen();
     bool isHost();
     AppSession *appSession() const { return m_appSession; }
+    bool viewRotationSupported() const { return !m_videoWidget.isNull() && !m_flexDisplay; }
+    int viewRotation() const { return m_viewRotation; }
+    void setViewRotation(int turns);
     void openAppTools(bool editKeymap);
 
 private:
@@ -100,6 +103,7 @@ private:
 
     //inside member
     QSize m_frameSize;
+    int m_viewRotation = 0;
     QSize m_normalSize;
     QPoint m_dragPosition;
     float m_widthHeightRatio = 0.5f;

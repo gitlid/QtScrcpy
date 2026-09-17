@@ -18,6 +18,8 @@ public:
     QSize sizeHint() const override;
 
     void setFrameSize(const QSize &frameSize);
+    void setViewRotation(int turns) { m_viewRotation = (turns % 4 + 4) % 4; update(); }
+    int viewRotation() const { return m_viewRotation; }
     const QSize &frameSize();
     void updateTextures(quint8 *dataY, quint8 *dataU, quint8 *dataV, quint32 linesizeY, quint32 linesizeU, quint32 linesizeV);
 
@@ -35,6 +37,7 @@ private:
 private:
     // 视频帧尺寸
     QSize m_frameSize = { -1, -1 };
+    int m_viewRotation = 0;
     bool m_needUpdate = false;
     bool m_textureInited = false;
 

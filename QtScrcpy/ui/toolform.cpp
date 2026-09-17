@@ -37,8 +37,13 @@ void ToolForm::setSerial(const QString &serial)
     if (device && !device->isCameraMode() && !device->isFlexDisplay()) {
         auto *video = qobject_cast<VideoForm *>(parentWidget());
         m_rotationMenu = new DeviceRotationMenu(device, video ? video->appSession() : nullptr, this);
+        if (video && video->viewRotationSupported()) {
+            const QPointer<VideoForm> view = video;
+            m_rotationMenu->addViewRotation([view] { return view ? view->viewRotation() : 0; },
+                [view](int turns) { if (view) view->setViewRotation(turns); });
+        }
         ui->rotateBtn->setMenu(m_rotationMenu);
-        ui->rotateBtn->setToolTip(tr("设备旋转：切换横竖屏 / 固定横屏 / 固定竖屏 / 恢复原设置"));
+        ui->rotateBtn->setToolTip(tr("旋转：手机横竖屏控制，或仅旋转投屏画面（不改变手机）"));
         // Reuse the existing shortcut, replacing its silent control-message path.
         // UHID mode still reserves Ctrl+R for Android through ShortcutOverride.
         if (video) for (auto *shortcut : video->findChildren<QShortcut *>(QString(), Qt::FindDirectChildrenOnly)) {

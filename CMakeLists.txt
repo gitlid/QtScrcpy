@@ -20,12 +20,18 @@ find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Network)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Network)
 add_library(qsc_applications STATIC QtScrcpy/ui/appsession.cpp QtScrcpy/ui/appsession.h
     QtScrcpy/ui/appbar.cpp QtScrcpy/ui/appbar.h QtScrcpy/ui/appbinding.h
+    QtScrcpy/ui/apprecenttasks.cpp QtScrcpy/ui/apprecenttasks.h
     QtScrcpy/ui/devicerotation.cpp QtScrcpy/ui/devicerotation.h
     QtScrcpy/ui/devicerotationmenu.cpp QtScrcpy/ui/devicerotationmenu.h)
 set_target_properties(qsc_applications PROPERTIES AUTOMOC ON CXX_STANDARD 11 CXX_STANDARD_REQUIRED ON)
 target_link_libraries(qsc_applications PUBLIC QtScrcpyCore Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
 if(MSVC)
     target_compile_options(qsc_applications PRIVATE /utf-8 /W3 /WX)
+    # Qt 5.15 uses MSVC checked iterators deprecated by the 2025+ STL.
+    # Limit suppression to that vendor extension; keep all other /WX checks.
+    if(QT_VERSION_MAJOR EQUAL 5)
+        target_compile_definitions(qsc_applications PUBLIC _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING)
+    endif()
 endif()
 target_link_libraries(QtScrcpy PRIVATE qsc_applications)
 if(TARGET actionmacro_integration)

@@ -12,6 +12,7 @@ public:
     DeviceRotationMenu(qsc::IDevice *device, AppSession *apps, QWidget *parent = nullptr,
                        DeviceRotation *rotation = nullptr);
     void choose(DeviceRotation::Mode mode);
+    void addViewRotation(std::function<int()> current, std::function<void(int)> apply);
 private:
     bool idleInput() const;
     QPointer<qsc::IDevice> m_device;

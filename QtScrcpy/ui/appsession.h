@@ -8,6 +8,8 @@
 #include "appbinding.h"
 #include "../QtScrcpyCore/include/QtScrcpyCore.h"
 
+class AppRecentTasks;
+
 class AppCommands : public QObject {
     Q_OBJECT
 public:
@@ -30,7 +32,11 @@ public:
     void start();
     void shutdown();
     QList<PhoneApp> apps() const;
-    QStringList tabs() const { return m_tabs; }
+    QStringList tabs() const;
+    QString taskStatus() const;
+    bool closingApp() const;
+    bool canCloseApp(const QString &packageName) const;
+    void closeApp(const QString &packageName);
     QString foreground() const { return m_foreground; }
     QString label(const QString &packageName) const;
     AppBinding binding(const QString &packageName) const;
@@ -38,7 +44,7 @@ public:
     // Historical API name: a target is guarded, NOT a prohibition on navigation.
     bool locked() const { return !m_target.isEmpty(); }
     bool preparing() const { return bool(m_pendingStart); }
-    bool ready() const { return m_connected && m_profilesReady; }
+    bool ready() const { return m_connected && m_profilesReady && !closingApp(); }
     void refreshApps();
     void activate(const QString &packageName);
     void closeTab(const QString &packageName);
@@ -54,6 +60,7 @@ public:
     static QString parseForeground(const QString &output);
 signals:
     void appsChanged();
+    void taskStatusChanged();
     void foregroundChanged(const QString &packageName);
     void statusChanged(const QString &message);
     void lockChanged();
@@ -78,6 +85,7 @@ private:
     void ensureTab(const QString &packageName);
     QPointer<qsc::IDevice> m_device;
     AppCommands *m_commands;
+    AppRecentTasks *m_recentTasks = nullptr;
     QTimer m_timer;
     QElapsedTimer m_lastProbe, m_recovery, m_stable;
     QHash<QString, PhoneApp> m_apps;
