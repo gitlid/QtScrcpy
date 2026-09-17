@@ -71,10 +71,17 @@ jobs:
           if(-not $p.WaitForExit(60000)){throw 'Embedded payload check timeout'}
           if($p.ExitCode -ne 0){throw 'Embedded payload check failed'}
           $p=Start-Process $exe -PassThru
-          if(-not $p.WaitForInputIdle(20000)){throw 'GUI did not become idle'}
-          Start-Sleep -Milliseconds 800
-          $p.Refresh()
-          if($p.HasExited -or $p.MainWindowHandle -eq [IntPtr]::Zero){throw 'GUI failed to open'}
+          $clock=[Diagnostics.Stopwatch]::StartNew()
+          do {
+            $p.Refresh()
+            if($p.HasExited){throw "GUI exited during startup: $($p.ExitCode)"}
+            if($p.MainWindowHandle -ne [IntPtr]::Zero){break}
+            Start-Sleep -Milliseconds 200
+          } while($clock.Elapsed.TotalSeconds -lt 20)
+          if($p.MainWindowHandle -eq [IntPtr]::Zero){
+            Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=(Get-Date).AddMinutes(-2)} -ErrorAction SilentlyContinue | Select-Object -First 10 TimeCreated,ProviderName,Message | Format-List | Out-File out/gui-error.log
+            throw 'GUI did not expose a visible native window'
+          }
           Add-Type -AssemblyName System.Drawing
           Add-Type @'
           using System; using System.Runtime.InteropServices;
