@@ -1,7 +1,7 @@
 name: ScrcpyKeyMapper integration
 on:
   push:
-    branches: [dev, feature/scrcpy-keymapper, feature/live-tabs-rom-fix]
+    branches: [dev, feature/scrcpy-keymapper, feature/live-tabs-rom-fix, feature/stable-view-orientation]
     tags: ['keymapper-v*']
     paths: ['QtScrcpy/**', 'tests/**', 'ci/**', 'config/**', 'keymap/**', 'CMakeLists.txt', '.gitmodules', '.github/workflows/keymapper-integration.yml']
   pull_request:
@@ -52,6 +52,7 @@ jobs:
         run: |
           $env:PATH="$(Join-Path $PWD 'output/x64/RelWithDebInfo');$env:PATH"
           $env:QT_QPA_PLATFORM='offscreen'
+          $env:QSC_LOCKED_VIEW_SCREENSHOT=Join-Path $PWD 'build-keymapper/locked-view-'
           $env:QSC_APPBAR_SCREENSHOT=Join-Path $PWD 'build-keymapper/appbar'
           $env:QSC_VIEW_SCREENSHOT=Join-Path $PWD 'build-keymapper/view-rotation.png'
           $env:QSC_ROTATION_SCREENSHOT=Join-Path $PWD 'build-keymapper/rotation-menu.png'
@@ -88,6 +89,7 @@ jobs:
             build-keymapper/rotation-menu.png
             build-keymapper/view-rotation.png
             build-keymapper/appbar*.png
+            build-keymapper/locked-view-*.png
             build-keymapper/portable-editor*
             build-keymapper/portable-test/Testing/Temporary/*.log
             build-keymapper/portable-test/results.xml

@@ -14,6 +14,7 @@ public:
     void setWidget(QWidget *w);
     void setWidthHeightRatio(float widthHeightRatio);
     const QSize goodSize();
+    void setFitWithinBounds(bool enabled);
 
 protected:
     void resizeEvent(QResizeEvent *event);
@@ -21,6 +22,7 @@ protected:
 
 private:
     float m_widthHeightRatio = -1.0f;
+    bool m_fitWithinBounds = false;
     QPointer<QWidget> m_subWidget;
     QSize m_goodSize;
 };

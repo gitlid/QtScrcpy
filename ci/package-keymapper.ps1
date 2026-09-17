@@ -11,6 +11,7 @@ Copy-Item 'LICENSE' (Join-Path $package 'LICENSE-QtScrcpy')
 Copy-Item 'QtScrcpy/QtScrcpyCore/LICENSE' (Join-Path $package 'LICENSE-QtScrcpyCore')
 Copy-Item 'docs/keymapper-integration.zh-CN.md' (Join-Path $package 'README-Keymapper.zh-CN.md')
 Copy-Item 'docs/application-profiles.zh-CN.md' (Join-Path $package 'README-Applications.zh-CN.md')
+Copy-Item 'docs/release-0.4.5.zh-CN.md' (Join-Path $package 'README-0.4.5.zh-CN.md')
 Copy-Item 'docs/release-0.4.4.zh-CN.md' (Join-Path $package 'README-0.4.4.zh-CN.md')
 Copy-Item 'docs/release-0.4.3.zh-CN.md' (Join-Path $package 'README-0.4.3.zh-CN.md')
 Copy-Item 'docs/device-rotation.zh-CN.md' (Join-Path $package 'README-Rotation.zh-CN.md')
@@ -70,7 +71,7 @@ try {
   Remove-Item $testExe -ErrorAction SilentlyContinue
 }
 if(Get-ChildItem $package -Recurse -File | Where-Object {$_.Extension -match '^\.(ttf|otf|woff|woff2|ttc)$'}){throw 'Unexpected standalone font file in package'}
-@{version=$version;mainCommit=$mainSha;coreCommit=$coreSha;editorCommit=$editorSha;runId=$env:GITHUB_RUN_ID;newFeaturesDeviceTested=$false;maximumPlaybackSpeed=8;audioChanged=$false;embeddedOfflineEditor=$true;portableEditorVerified=$true;inlineAppClose=$true;taskParserDiagnostics=$true;nativeTabScrollButtons=$false;viewRotation=$true;recentTaskTabs=$true;closeRecentApplications=$true;deviceRotationMenu=$true;rotationBackupRestore=$true;applicationTabs=$true;applicationProfiles=$true;macroForegroundRecovery=$true} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
+@{version=$version;mainCommit=$mainSha;coreCommit=$coreSha;editorCommit=$editorSha;runId=$env:GITHUB_RUN_ID;newFeaturesDeviceTested=$false;maximumPlaybackSpeed=8;audioChanged=$false;embeddedOfflineEditor=$true;portableEditorVerified=$true;stableViewOrientation=$true;preserveViewWindowGeometry=$true;manualRotationKeepsAxis=$true;inlineAppClose=$true;taskParserDiagnostics=$true;nativeTabScrollButtons=$false;viewRotation=$true;recentTaskTabs=$true;closeRecentApplications=$true;deviceRotationMenu=$true;rotationBackupRestore=$true;applicationTabs=$true;applicationProfiles=$true;macroForegroundRecovery=$true} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
 $zip=Join-Path $PWD "dist/$name.zip"
 Compress-Archive $package $zip
 $hash=(Get-FileHash $zip -Algorithm SHA256).Hash

@@ -7,7 +7,7 @@ using System.Text;
 using QscUpdate;
 class FailureTests {
     static void Check(bool yes,string text){if(!yes)throw new Exception(text);}
-    static MemoryStream Package(){var s=new MemoryStream();using(var z=new ZipArchive(s,ZipArchiveMode.Create,true)){foreach(var x in new[]{"QtScrcpy.exe","Qt5Core.dll","a.dll","platforms/qwindows.dll","build-info.json"})using(var w=new StreamWriter(z.CreateEntry("QtScrcpy-keymapper-0.4.4-rc.1-win64/"+x).Open()))w.Write("new-"+x);}s.Position=0;return s;}
+    static MemoryStream Package(){var s=new MemoryStream();using(var z=new ZipArchive(s,ZipArchiveMode.Create,true)){foreach(var x in new[]{"QtScrcpy.exe","Qt5Core.dll","a.dll","platforms/qwindows.dll","build-info.json"})using(var w=new StreamWriter(z.CreateEntry("QtScrcpy-keymapper-0.4.5-rc.1-win64/"+x).Open()))w.Write("new-"+x);}s.Position=0;return s;}
     static void Main(){int total=0;for(int mode=0;mode<2;mode++)for(int boundary=0;boundary<5;boundary++){
         string root=Path.Combine(Path.GetTempPath(),"Qsc-Faults-"+Guid.NewGuid().ToString("N")),target=Path.Combine(root,"old");Directory.CreateDirectory(target);
         File.WriteAllText(Path.Combine(target,"QtScrcpy.exe"),"old-exe");File.WriteAllText(Path.Combine(target,"Qt5Core.dll"),"old-dll");File.WriteAllText(Path.Combine(target,"keep.qsmacro.json"),"my-script");

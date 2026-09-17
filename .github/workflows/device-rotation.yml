@@ -1,7 +1,7 @@
 name: Device rotation regression
 on:
   push:
-    branches: [dev, feature/device-rotation, feature/live-tabs-rom-fix]
+    branches: [dev, feature/device-rotation, feature/live-tabs-rom-fix, feature/stable-view-orientation]
     paths: ['QtScrcpy/ui/**', 'QtScrcpy/QtScrcpyCore', 'tests/apps/**', 'CMakeLists.txt', '.github/workflows/device-rotation.yml']
   pull_request:
     branches: [dev]
