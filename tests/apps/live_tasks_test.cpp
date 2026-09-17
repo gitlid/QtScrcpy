@@ -41,8 +41,8 @@ void parseTasks(bool legacy) {
     require(AppRecentTasks::parse(snapshot(task(first,0,0,legacy)+task(second,1,0,legacy)+task(first,2,0,legacy)),&out,&user),"parse AOSP task records");
     require(out == QStringList({first,second}) && user == 0,"deduplicate in MRU order");
     // Task.dump() prints realActivity as mActivityComponent in Android 10+.
-    const auto aosp = (task(first,0,0,legacy)+task(second,1,0,legacy))
-        .replace("realActivity=", "mActivityComponent=");
+    QString aosp = task(first,0,0,legacy) + task(second,1,0,legacy);
+    aosp.replace("realActivity=", "mActivityComponent=");
     require(AppRecentTasks::parse(snapshot(aosp),&out,&user) && out==QStringList({first,second}),
             "parse actual AOSP mActivityComponent dump field");
     const auto visibleInfo = QString("  Visible recent tasks (most recent first):\n"
