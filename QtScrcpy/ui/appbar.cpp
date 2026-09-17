@@ -8,6 +8,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
 #include <QRegion>
@@ -81,7 +82,7 @@ AppBar::AppBar(AppSession *session, QWidget *parent) : QWidget(parent), m_sessio
     });
     connect(m_tabs, &QTabBar::currentChanged, this, [this](int) { scheduleOverflow(); });
     connect(m_tabs, &QTabBar::tabCloseRequested, this, [this](int index) {
-        if (m_session && index > 0) m_session->closeTab(m_tabs->tabData(index).toString());
+        if (m_session && index > 0) confirmCloseApp(m_tabs->tabData(index).toString());
     });
     connect(m_add, &QToolButton::clicked, this, &AppBar::chooseApp);
     connect(m_keys, &QToolButton::clicked, this, &AppBar::editKeymap);
@@ -90,7 +91,9 @@ AppBar::AppBar(AppSession *session, QWidget *parent) : QWidget(parent), m_sessio
     connect(session, &AppSession::appsChanged, this, &AppBar::refresh);
     connect(session, &AppSession::foregroundChanged, this, &AppBar::refresh);
     connect(session, &AppSession::lockChanged, this, &AppBar::refresh);
-    connect(session, &AppSession::statusChanged, this, [this](const QString &text) { m_status->setText(text); m_status->setToolTip(text); });
+    connect(session, &AppSession::statusChanged, this, &AppBar::refreshStatus);
+    connect(session, &AppSession::taskStatusChanged, this, &AppBar::refreshStatus);
+    refreshStatus();
     refresh();
 }
 void AppBar::wheelEvent(QWheelEvent *event) { event->accept(); }
@@ -119,6 +122,8 @@ void AppBar::updateOverflow() {
     if (!m_overflow->isVisible()) populateOverflow();
 }
 void AppBar::populateOverflow() {
+    const auto previousMenus = m_overflow->findChildren<QMenu *>(QString(), Qt::FindDirectChildrenOnly);
+    for (auto *menu : previousMenus) delete menu;
     m_overflow->clear();
     if (!m_session) return;
     QRegion visible(m_tabs->rect());
@@ -126,6 +131,8 @@ void AppBar::populateOverflow() {
         if (scroll->isVisible()) visible = visible.subtracted(QRegion(scroll->geometry()));
     }
     int count = 0;
+    auto *closeMenu = new QMenu(tr("关闭后台应用（强制停止）"), m_overflow);
+    closeMenu->setObjectName("closeHiddenPhoneApps");
     for (int index = 1; index < m_tabs->count(); ++index) {
         const QString packageName = m_tabs->tabData(index).toString();
         const QString name = m_session->label(packageName);
@@ -139,10 +146,32 @@ void AppBar::populateOverflow() {
         action->setEnabled(m_session->ready());
         const QPointer<AppSession> session = m_session;
         connect(action, &QAction::triggered, this, [session, packageName] { if (session) session->activate(packageName); });
+        auto *closeAction = closeMenu->addAction(badge(name, packageName), literalCaption(name));
+        closeAction->setData(packageName); closeAction->setToolTip(name + '\n' + packageName);
+        closeAction->setEnabled(m_session->canCloseApp(packageName));
+        connect(closeAction, &QAction::triggered, this, [this, packageName] { confirmCloseApp(packageName); });
         ++count;
     }
+    if (count) { m_overflow->addSeparator(); m_overflow->addMenu(closeMenu); }
+    else delete closeMenu;
     if (!count) m_overflow->addAction(tr("没有隐藏的应用"))->setEnabled(false);
     m_more->setToolTip(tr("更多应用：%1 个标签未完整显示").arg(count));
+}
+void AppBar::refreshStatus() {
+    if (!m_session) return;
+    const auto text = m_session->status() + QStringLiteral(" · ") + m_session->taskStatus();
+    m_status->setText(text); m_status->setToolTip(text);
+}
+void AppBar::confirmCloseApp(const QString &packageName) {
+    const QPointer<AppSession> session = m_session;
+    if (!session || !session->canCloseApp(packageName)) return;
+    const auto answer = QMessageBox::question(this, tr("关闭手机应用"),
+        tr("关闭“%1”（%2）？\n这会强制停止该应用，不是只隐藏标签，也不会卸载或清除数据。\n"
+           "未保存的操作可能丢失，后台通知可能停止，直到再次打开应用。\n"
+           "继续还会停止当前宏、录制和自动切回任务；录制不会自动保存。")
+            .arg(session->label(packageName), packageName),
+        QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (answer == QMessageBox::Yes && session) session->closeApp(packageName);
 }
 void AppBar::refresh() {
     if (!m_session) return;
@@ -154,7 +183,7 @@ void AppBar::refresh() {
     for (const auto &packageName : m_session->tabs()) {
         const auto name = m_session->label(packageName);
         const int index = m_tabs->addTab(badge(name, packageName), literalCaption(name));
-        m_tabs->setTabData(index, packageName); m_tabs->setTabToolTip(index, name + '\n' + packageName);
+        m_tabs->setTabData(index, packageName); m_tabs->setTabToolTip(index, name + '\n' + packageName + tr("\n×：关闭手机应用（需确认）"));
         if (packageName == m_session->foreground()) current = index;
     }
     m_tabs->setCurrentIndex(current);

@@ -35,7 +35,7 @@ DeviceRotationMenu::DeviceRotationMenu(qsc::IDevice *device, AppSession *apps, Q
     connect(m_rotation,&DeviceRotation::finished,this,[this](bool ok,const QString &message){
         if(!m_connected) return;
         if(ok) QMessageBox::information(parentWidget(),tr("设备旋转"),message);
-        else QMessageBox::warning(parentWidget(),tr("设备旋转"),message);
+        else QMessageBox::warning(parentWidget(),tr("设备旋转"),message + tr("\n手机不支持时，可改用“仅旋转投屏画面”，不改变手机方向。"));
     });
     if(device) {
         auto disconnected=[this]{ m_connected=false; m_rotation->disconnectDevice(); close(); };
@@ -45,10 +45,10 @@ DeviceRotationMenu::DeviceRotationMenu(qsc::IDevice *device, AppSession *apps, Q
 }
 bool DeviceRotationMenu::idleInput() const {
     return m_connected && m_device && !m_device->isActionPlaying() && !m_device->isActionRecording()
-        && (!m_apps || !m_apps->locked());
+        && (!m_apps || (!m_apps->locked() && !m_apps->closingApp()));
 }
 void DeviceRotationMenu::choose(DeviceRotation::Mode mode) {
-    if(!m_connected || !m_device || m_rotation->busy()) return;
+    if(!m_connected || !m_device || m_rotation->busy() || (m_apps && m_apps->closingApp())) return;
     if(!idleInput()) {
         const auto answer=QMessageBox::question(parentWidget(),tr("旋转前停止预制操作"),
             tr("方向改变会影响录制坐标。是否先停止当前预制操作/录制及自动切回，再执行旋转？\n仅暂停仍由宏占用输入；取消则不改变方向。"),
@@ -60,4 +60,20 @@ void DeviceRotationMenu::choose(DeviceRotation::Mode mode) {
     if(!idleInput()) return;
     m_device->prepareKeymapEditing(); m_device->releaseKeyboard();
     m_rotation->request(mode);
+}
+
+void DeviceRotationMenu::addViewRotation(std::function<int()> current, std::function<void(int)> apply) {
+    if (!current || !apply) return;
+    addSeparator();
+    auto *menu = addMenu(tr("仅旋转投屏画面（不改变手机）"));
+    menu->setObjectName("viewRotationMenu");
+    const QStringList labels{tr("顺时针 90°"), tr("逆时针 90°"), tr("旋转 180°"), tr("恢复画面方向")};
+    const QList<int> deltas{1, -1, 2, 0};
+    for (int i = 0; i < labels.size(); ++i) {
+        auto *action = menu->addAction(labels[i]); action->setObjectName(QString("viewRotation%1").arg(i));
+        const int delta = deltas[i];
+        connect(action, &QAction::triggered, this, [this, current, apply, delta] {
+            if (m_connected && m_device && !m_rotation->busy()) apply(delta ? current() + delta : 0);
+        });
+    }
 }

@@ -2,6 +2,7 @@
 #include "keymapdocument.h"
 #include "applabels.h"
 #include "appcommandprocess.h"
+#include "apprecenttasks.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDebug>
@@ -20,6 +21,16 @@ AppSession::AppSession(qsc::IDevice *device, const QString &serverPath, QObject 
       m_directory(directory.isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
                                          + "/app-profiles" : directory) {
     m_connected = device && !device->isCameraMode() && !device->isFlexDisplay();
+    m_recentTasks = new AppRecentTasks(m_serial, m_commands, this);
+    m_recentTasks->setWriteGuard([this] {
+        return m_connected && m_device && !locked() && !m_device->isActionPlaying() && !m_device->isActionRecording();
+    });
+    connect(m_recentTasks, &AppRecentTasks::changed, this, &AppSession::appsChanged);
+    connect(m_recentTasks, &AppRecentTasks::statusChanged, this, &AppSession::taskStatusChanged);
+    connect(m_recentTasks, &AppRecentTasks::userChanged, this, [this] { stopMacro(); refreshApps(); });
+    connect(m_recentTasks, &AppRecentTasks::closeFinished, this, [this](bool ok, const QString &message) {
+        setStatus(message); if (!ok) emit failure(message); refreshFocus();
+    });
     m_timer.setInterval(250);
     connect(&m_timer, &QTimer::timeout, this, &AppSession::tick);
     connect(m_commands, &AppCommands::finished, this, &AppSession::result);
@@ -40,13 +51,31 @@ void AppSession::start() {
     if (!m_connected || m_timer.isActive()) return;
     setStatus(tr("正在读取手机应用…"));
     m_commands->run("identity", m_serial, {"shell", "getprop", "ro.serialno"}, 3000);
-    refreshApps(); m_timer.start(); tick();
+    refreshApps(); m_timer.start(); tick(); m_recentTasks->start();
 }
 void AppSession::shutdown() {
     if (!m_connected) return;
-    m_connected = false; m_timer.stop(); stopMacro(); m_commands->cancelAll();
+    m_connected = false; m_timer.stop(); m_recentTasks->stop(); stopMacro(); m_commands->cancelAll();
     m_probePending = m_launchPending = m_namesPending = false;
     setStatus(tr("手机已断开")); emit appsChanged();
+}
+QStringList AppSession::tabs() const {
+    if (!m_recentTasks || !m_recentTasks->hasSnapshot()) return m_tabs;
+    QStringList visible;
+    for (const auto &name : m_recentTasks->packages()) if (m_apps.contains(name)) visible.append(name);
+    return visible;
+}
+QString AppSession::taskStatus() const { return m_recentTasks ? m_recentTasks->status() : QString(); }
+bool AppSession::closingApp() const { return m_recentTasks && m_recentTasks->closing(); }
+bool AppSession::canCloseApp(const QString &packageName) const {
+    return ready() && m_device && m_apps.contains(packageName) && m_recentTasks && m_recentTasks->canClose(packageName);
+}
+void AppSession::closeApp(const QString &packageName) {
+    if (!canCloseApp(packageName)) { emit failure(tr("最近任务尚未确认、应用已退出或正在关闭；请稍后重试。")); return; }
+    // The AppBar confirmation covers stopping both bound and unbound macros.
+    stopMacro();
+    m_device->stopActionRecording(); m_device->prepareKeymapEditing(); m_device->releaseKeyboard();
+    if (!m_recentTasks->closePackage(packageName)) emit failure(tr("当前输入或任务状态改变，未关闭应用。"));
 }
 QList<PhoneApp> AppSession::apps() const {
     auto result = m_apps.values();
@@ -195,7 +224,7 @@ void AppSession::result(const QString &tag, bool success, const QString &output,
             setStatus(message); emit failure(message);
         }
         if (m_navigationPending) dispatchNavigation();
-        refreshFocus();
+        refreshFocus(); m_recentTasks->refresh();
     }
 }
 void AppSession::observe(const QString &packageName) {
@@ -210,7 +239,7 @@ void AppSession::ensureTab(const QString &packageName) {
     m_tabs.append(packageName); saveProfiles(); emit appsChanged();
 }
 void AppSession::activate(const QString &packageName) {
-    if (!m_connected || !m_device) return;
+    if (!m_connected || !m_device || closingApp()) return;
     if (m_device->isActionRecording()) { emit failure(tr("请先结束录制再切换应用。")); return; }
     if (!packageName.isEmpty() && (!AppBinding::validPackage(packageName) || !m_apps.contains(packageName)
                                   || m_apps.value(packageName).component.isEmpty())) {

@@ -20,6 +20,8 @@ protected:
 private:
     void refresh();
     void chooseApp();
+    void confirmCloseApp(const QString &packageName);
+    void refreshStatus();
     void scheduleOverflow();
     void updateOverflow();
     void populateOverflow();

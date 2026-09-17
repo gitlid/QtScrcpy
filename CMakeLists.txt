@@ -20,6 +20,7 @@ find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Network)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Network)
 add_library(qsc_applications STATIC QtScrcpy/ui/appsession.cpp QtScrcpy/ui/appsession.h
     QtScrcpy/ui/appbar.cpp QtScrcpy/ui/appbar.h QtScrcpy/ui/appbinding.h
+    QtScrcpy/ui/apprecenttasks.cpp QtScrcpy/ui/apprecenttasks.h
     QtScrcpy/ui/devicerotation.cpp QtScrcpy/ui/devicerotation.h
     QtScrcpy/ui/devicerotationmenu.cpp QtScrcpy/ui/devicerotationmenu.h)
 set_target_properties(qsc_applications PROPERTIES AUTOMOC ON CXX_STANDARD 11 CXX_STANDARD_REQUIRED ON)
