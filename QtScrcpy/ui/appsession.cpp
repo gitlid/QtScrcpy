@@ -214,6 +214,9 @@ void AppSession::result(const QString &tag, bool success, const QString &output,
         m_probePending = false;
         if (success) m_lastProbe.restart();
         observe(success ? parseForeground(output) : QString()); advanceGuard();
+        // A system-panel gesture may temporarily own the input channel when
+        // foreground changes. Retry after it ends, even if focus is unchanged.
+        if (!locked()) applyForegroundKeymap();
     } else if (tag == "launch") {
         const bool navigation = m_launchIsNavigation;
         m_launchPending = false; m_launchIsNavigation = false;

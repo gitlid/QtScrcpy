@@ -5,7 +5,6 @@
 #include <QWidget>
 
 #include "../QtScrcpyCore/include/QtScrcpyCore.h"
-#include "magneticwidget.h"
 
 namespace Ui
 {
@@ -15,25 +14,18 @@ namespace Ui
 class Device;
 class ActionMacroDialog;
 class DeviceRotationMenu;
-class ToolForm : public MagneticWidget
+class VideoForm;
+class ToolForm : public QWidget
 {
     Q_OBJECT
 
 public:
-    explicit ToolForm(QWidget *adsorbWidget, AdsorbPositions adsorbPos);
+    explicit ToolForm(VideoForm *view, QWidget *parent = nullptr);
     ~ToolForm();
 
     void setSerial(const QString& serial);
     bool isHost();
     void openActionMacro(bool editKeymap = false);
-
-protected:
-    void mousePressEvent(QMouseEvent *event);
-    void mouseReleaseEvent(QMouseEvent *event);
-    void mouseMoveEvent(QMouseEvent *event);
-
-    void showEvent(QShowEvent *event);
-    void hideEvent(QHideEvent *event);
 
 private slots:
     void on_fullScreenBtn_clicked();
@@ -64,7 +56,7 @@ private:
 
 private:
     Ui::ToolForm *ui;
-    QPoint m_dragPosition;
+    QPointer<VideoForm> m_view;
     QString m_serial;
     bool m_showTouch = false;
     bool m_cameraTorch = false;

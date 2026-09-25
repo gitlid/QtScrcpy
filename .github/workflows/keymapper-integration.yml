@@ -55,6 +55,7 @@ jobs:
           $env:QSC_LOCKED_VIEW_SCREENSHOT=Join-Path $PWD 'build-keymapper/locked-view-'
           $env:QSC_APPBAR_SCREENSHOT=Join-Path $PWD 'build-keymapper/appbar'
           $env:QSC_VIEW_SCREENSHOT=Join-Path $PWD 'build-keymapper/view-rotation.png'
+          $env:QSC_DOCK_SCREENSHOT=Join-Path $PWD 'build-keymapper/integrated-toolbar.png'
           $env:QSC_ROTATION_SCREENSHOT=Join-Path $PWD 'build-keymapper/rotation-menu.png'
           ctest --test-dir build-keymapper -C RelWithDebInfo -E keymapper_native_bridge --output-on-failure --output-junit results.xml --timeout 60
           if($LASTEXITCODE -ne 0){throw 'Regression failed'}
@@ -87,6 +88,7 @@ jobs:
             build-keymapper/web-results.xml
             build-keymapper/keymapper-native.png
             build-keymapper/rotation-menu.png
+            build-keymapper/integrated-toolbar.png
             build-keymapper/view-rotation.png
             build-keymapper/appbar*.png
             build-keymapper/locked-view-*.png
