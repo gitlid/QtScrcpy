@@ -30,6 +30,7 @@
 #include "appbar.h"
 #include "actionmacrohotkey.h"
 #include "videoinputgeometry.h"
+#include "../QtScrcpyCore/include/viewgeometry.h"
 
 #ifdef Q_OS_MACOS
 #include "metalvideowindow.h"
@@ -542,51 +543,115 @@ QMargins VideoForm::getMargins(bool vertical)
     return margins;
 }
 
+bool VideoForm::prepareViewChange()
+{
+    if (!viewRotationSupported() || m_frameSize.isEmpty()) return false;
+    auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+    if (!device || (m_appSession && m_appSession->closingApp())) return false;
+    const QPointer<VideoForm> originalView(this);
+    const QPointer<qsc::IDevice> originalDevice = device;
+    if (device->isActionPlaying() || device->isActionRecording() || (m_appSession && m_appSession->locked())) {
+        const auto answer = QMessageBox::question(this, tr("调整展示方向前停止预制操作"),
+            tr("只调整电脑投屏，不修改手机方向。是否先停止当前宏/录制及自动切回？\n录制不会自动保存；取消则不改变展示设置。"),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (!originalView || answer != QMessageBox::Yes) return false;
+        device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+        if (!originalDevice || device != originalDevice.data() || (m_appSession && !m_appSession->ready())) return false;
+        if (m_appSession) m_appSession->stopMacro();
+        device->stopActionPlayback(); device->stopActionRecording();
+    }
+    if (device->isActionPlaying() || device->isActionRecording() || (m_appSession && m_appSession->closingApp())) return false;
+    device->prepareKeymapEditing(); device->releaseKeyboard(); grabCursor(false);
+    return true;
+}
+
+void VideoForm::setViewRotation(int turns)
+{
+    const int delta = ViewOrientation::normalized(turns - m_viewRotation);
+    if (delta == 0 && m_viewOrientation.locked()) return;
+    if (!prepareViewChange()) return;
+    // The phone may have rotated while the confirmation dialog was open.
+    // Apply the requested relative turn to the latest source, not a stale size.
+    ViewOrientation next = m_viewOrientation;
+    next.selectRotation(m_viewRotation + delta);
+    applyViewOrientation(next);
+}
+
+void VideoForm::setViewOrientationMode(ViewOrientation::Mode mode)
+{
+    if (mode != ViewOrientation::FollowPhone && mode != ViewOrientation::KeepLandscape
+        && mode != ViewOrientation::KeepPortrait) return;
+    if (!prepareViewChange()) return;
+    ViewOrientation next = m_viewOrientation;
+    next.setMode(mode);
+    applyViewOrientation(next);
+}
+
+void VideoForm::applyViewOrientation(const ViewOrientation &orientation)
+{
+    const QSize previous = m_viewOrientation.viewSize();
+    m_viewOrientation = orientation;
+    m_viewOrientation.setSourceSize(m_frameSize);
+    const QSize next = m_viewOrientation.viewSize();
+    const bool axisChanged = (previous.width() > previous.height()) != (next.width() > next.height());
+    // An explicit axis change may resize once. Merely keeping the already
+    // selected landscape/portrait view must not reset the user's window.
+    setMinimumSize(0, 0);
+    updateViewLayout(axisChanged);
+}
+
 void VideoForm::updateShowSize(const QSize &newSize)
 {
-    if (m_frameSize != newSize) {
-        m_frameSize = newSize;
+    if (newSize.isEmpty()) return;
+    if (newSize == m_frameSize && newSize == m_viewOrientation.sourceSize()) return;
+    m_frameSize = newSize; // Never substitute the rotated/display size here.
+    m_viewOrientation.setSourceSize(newSize);
+    updateViewLayout(!m_viewOrientation.locked());
+}
 
-        m_widthHeightRatio = 1.0f * newSize.width() / newSize.height();
-        ui->keepRatioWidget->setWidthHeightRatio(m_widthHeightRatio);
+void VideoForm::updateViewLayout(bool resizeWindow)
+{
+    const QSize viewSize = m_viewOrientation.viewSize();
+    if (viewSize.isEmpty()) return;
+    m_viewRotation = m_viewOrientation.rotation();
+    if (m_videoWidget) m_videoWidget->setViewRotation(m_viewRotation);
+    m_widthHeightRatio = 1.0f * viewSize.width() / viewSize.height();
+    ui->keepRatioWidget->setFitWithinBounds(m_viewOrientation.locked());
+    ui->keepRatioWidget->setWidthHeightRatio(m_widthHeightRatio);
+    const bool vertical = m_widthHeightRatio < 1.0f;
 
-        bool vertical = m_widthHeightRatio < 1.0f ? true : false;
-        QSize showSize = newSize;
-        QRect screenRect = getScreenRect();
-        if (screenRect.isEmpty()) {
-            qWarning() << "getScreenRect is empty";
-            return;
-        }
-        if (vertical) {
-            showSize.setHeight(qMin(newSize.height(), screenRect.height() - 200));
-            showSize.setWidth(showSize.height() * m_widthHeightRatio);
-        } else {
-            showSize.setWidth(qMin(newSize.width(), screenRect.width() / 2));
-            showSize.setHeight(showSize.width() / m_widthHeightRatio);
-        }
-
-        if (isFullScreen() && qsc::IDeviceManage::getInstance().getDevice(m_serial)) {
-            switchFullScreen();
-        }
-
-        if (isMaximized()) {
-            showNormal();
-        }
-
-        if (m_skin) {
-            QMargins m = getMargins(vertical);
-            showSize.setWidth(showSize.width() + m.left() + m.right());
-            showSize.setHeight(showSize.height() + m.top() + m.bottom());
-        }
-        if (m_appBar) showSize.rheight() += m_appBar->height();
-
-        if (showSize != size()) {
-            resize(showSize);
-            if (m_skin) {
-                updateStyleSheet(vertical);
-            }
-            moveCenter();
-        }
+    if (m_viewOrientation.locked()) {
+        // Compensate 1080x2340 <-> 2340x1080 in the view only. Neither the
+        // window geometry nor its fullscreen/maximized state may oscillate.
+        setMinimumSize(0, 0);
+        if (m_skin && !isFullScreen()) updateStyleSheet(vertical);
+        if (isFullScreen() || isMaximized() || !resizeWindow) return;
+    }
+    if (!resizeWindow) return;
+    QSize showSize = viewSize;
+    const QRect screenRect = getScreenRect();
+    if (screenRect.isEmpty()) {
+        qWarning() << "getScreenRect is empty";
+        return;
+    }
+    if (vertical) {
+        showSize.setHeight(qMin(viewSize.height(), qMax(1, screenRect.height() - 200)));
+        showSize.setWidth(qMax(1, int(showSize.height() * m_widthHeightRatio)));
+    } else {
+        showSize.setWidth(qMin(viewSize.width(), qMax(1, screenRect.width() / 2)));
+        showSize.setHeight(qMax(1, int(showSize.width() / m_widthHeightRatio)));
+    }
+    if (isFullScreen() && qsc::IDeviceManage::getInstance().getDevice(m_serial)) switchFullScreen();
+    if (isMaximized()) showNormal();
+    if (m_skin) {
+        const QMargins margins = getMargins(vertical);
+        showSize += QSize(margins.left() + margins.right(), margins.top() + margins.bottom());
+        updateStyleSheet(vertical);
+    }
+    if (m_appBar) showSize.rheight() += m_appBar->height();
+    if (showSize != size()) {
+        resize(showSize);
+        moveCenter();
     }
 }
 
@@ -598,8 +663,8 @@ void VideoForm::onVideoSessionChanged(const QSize &size, bool clientResized)
         ui->keepRatioWidget->setWidthHeightRatio(-1.0f);
         return;
     }
-    // clientResized is only meaningful for flex display. Normal display
-    // rotations must retain the longstanding auto-resize behavior.
+    // clientResized is only meaningful for flex display. Desktop orientation
+    // locking is handled independently from the raw session/controller size.
     m_preventAutoResize = false;
     updateShowSize(size);
 }
@@ -623,7 +688,7 @@ void VideoForm::switchFullScreen()
         //show();
 #endif
         if (m_skin) {
-            updateStyleSheet(m_frameSize.height() > m_frameSize.width());
+            updateStyleSheet(m_widthHeightRatio < 1.0f);
         }
         showToolForm(this->show_toolbar);
 #ifdef Q_OS_WIN32
@@ -631,7 +696,7 @@ void VideoForm::switchFullScreen()
 #endif
     } else {
         // 横屏全屏铺满全屏，不保持宽高比
-        if (m_widthHeightRatio > 1.0f) {
+        if (m_widthHeightRatio > 1.0f && !m_viewOrientation.locked()) {
             ui->keepRatioWidget->setWidthHeightRatio(-1.0f);
         }
 
@@ -759,14 +824,15 @@ void VideoForm::mousePressEvent(QMouseEvent *event)
         if (!device) {
             return;
         }
-        QPointF mappedPos = vw->mapFrom(this, localPos.toPoint());
-        QMouseEvent newEvent(event->type(), mappedPos, globalPos, event->button(), event->buttons(), event->modifiers());
-        emit device->mouseEvent(&newEvent, m_frameSize, vw->size());
+        QPointF mappedPos = qsc::ViewGeometry::toSource(vw->mapFrom(this, localPos.toPoint()), vw->size(), m_viewRotation);
+        qsc::ViewMouseEvent newEvent(event->type(), mappedPos, globalPos, event->button(), event->buttons(), event->modifiers(),
+            vw->mapToGlobal(QPoint()), vw->size(), m_viewRotation);
+        emit device->mouseEvent(&newEvent, m_frameSize, qsc::ViewGeometry::sourceSize(vw->size(), m_viewRotation));
 
         // debug keymap pos
         if (event->button() == Qt::LeftButton) {
-            qreal x = mappedPos.x() / vw->size().width();
-            qreal y = mappedPos.y() / vw->size().height();
+            qreal x = mappedPos.x() / qsc::ViewGeometry::sourceSize(vw->size(), m_viewRotation).width();
+            qreal y = mappedPos.y() / qsc::ViewGeometry::sourceSize(vw->size(), m_viewRotation).height();
             QString posTip = QString(R"("pos": {"x": %1, "y": %2})").arg(x).arg(y);
             qInfo() << posTip.toStdString().c_str();
         }
@@ -811,8 +877,10 @@ void VideoForm::mouseReleaseEvent(QMouseEvent *event)
         if (local.y() > vw->height()) {
             local.setY(vw->height());
         }
-        QMouseEvent newEvent(event->type(), local, globalPos, event->button(), event->buttons(), event->modifiers());
-        emit device->mouseEvent(&newEvent, m_frameSize, vw->size());
+        local = qsc::ViewGeometry::toSource(local, vw->size(), m_viewRotation);
+        qsc::ViewMouseEvent newEvent(event->type(), local, globalPos, event->button(), event->buttons(), event->modifiers(),
+            vw->mapToGlobal(QPoint()), vw->size(), m_viewRotation);
+        emit device->mouseEvent(&newEvent, m_frameSize, qsc::ViewGeometry::sourceSize(vw->size(), m_viewRotation));
     } else {
         m_dragPosition = QPoint(0, 0);
     }
@@ -829,13 +897,14 @@ void VideoForm::mouseMoveEvent(QMouseEvent *event)
 #endif
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     QWidget *vw = videoWidget();
-    if (vw && vw->geometry().contains(event->pos())) {
+    if (vw && VideoInputGeometry::contains(this, vw, event->pos())) {
         if (!device) {
             return;
         }
-        QPointF mappedPos = vw->mapFrom(this, localPos.toPoint());
-        QMouseEvent newEvent(event->type(), mappedPos, globalPos, event->button(), event->buttons(), event->modifiers());
-        emit device->mouseEvent(&newEvent, m_frameSize, vw->size());
+        QPointF mappedPos = qsc::ViewGeometry::toSource(vw->mapFrom(this, localPos.toPoint()), vw->size(), m_viewRotation);
+        qsc::ViewMouseEvent newEvent(event->type(), mappedPos, globalPos, event->button(), event->buttons(), event->modifiers(),
+            vw->mapToGlobal(QPoint()), vw->size(), m_viewRotation);
+        emit device->mouseEvent(&newEvent, m_frameSize, qsc::ViewGeometry::sourceSize(vw->size(), m_viewRotation));
     } else if (!m_dragPosition.isNull()) {
         if (event->buttons() & Qt::LeftButton) {
             move(globalPos.toPoint() - m_dragPosition);
@@ -848,7 +917,7 @@ void VideoForm::mouseDoubleClickEvent(QMouseEvent *event)
 {
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     QWidget *vw = videoWidget();
-    if (event->button() == Qt::LeftButton && vw && !vw->geometry().contains(event->pos())) {
+    if (event->button() == Qt::LeftButton && vw && !VideoInputGeometry::contains(this, vw, event->pos())) {
         if (!isMaximized()) {
             removeBlackRect();
         }
@@ -859,7 +928,7 @@ void VideoForm::mouseDoubleClickEvent(QMouseEvent *event)
         emit device->postBackOrScreenOn(event->type() == QEvent::MouseButtonPress);
     }
 
-    if (vw && vw->geometry().contains(event->pos())) {
+    if (vw && VideoInputGeometry::contains(this, vw, event->pos())) {
         if (!device) {
             return;
         }
@@ -870,9 +939,10 @@ void VideoForm::mouseDoubleClickEvent(QMouseEvent *event)
         QPointF localPos = event->position();
         QPointF globalPos = event->globalPosition();
 #endif
-        QPointF mappedPos = vw->mapFrom(this, localPos.toPoint());
-        QMouseEvent newEvent(event->type(), mappedPos, globalPos, event->button(), event->buttons(), event->modifiers());
-        emit device->mouseEvent(&newEvent, m_frameSize, vw->size());
+        QPointF mappedPos = qsc::ViewGeometry::toSource(vw->mapFrom(this, localPos.toPoint()), vw->size(), m_viewRotation);
+        qsc::ViewMouseEvent newEvent(event->type(), mappedPos, globalPos, event->button(), event->buttons(), event->modifiers(),
+            vw->mapToGlobal(QPoint()), vw->size(), m_viewRotation);
+        emit device->mouseEvent(&newEvent, m_frameSize, qsc::ViewGeometry::sourceSize(vw->size(), m_viewRotation));
     }
 }
 
@@ -884,25 +954,25 @@ void VideoForm::wheelEvent(QWheelEvent *event)
         return;
     }
 #if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
-    if (vw->geometry().contains(event->position().toPoint())) {
+    if (VideoInputGeometry::contains(this, vw, event->position().toPoint())) {
         if (!device) {
             return;
         }
-        QPointF pos = vw->mapFrom(this, event->position().toPoint());
+        QPointF pos = qsc::ViewGeometry::toSource(vw->mapFrom(this, event->position().toPoint()), vw->size(), m_viewRotation);
         QWheelEvent wheelEvent(
-            pos, event->globalPosition(), event->pixelDelta(), event->angleDelta(), event->buttons(), event->modifiers(), event->phase(), event->inverted());
+            pos, event->globalPosition(), qsc::ViewGeometry::deltaToSource(event->pixelDelta(), m_viewRotation), qsc::ViewGeometry::deltaToSource(event->angleDelta(), m_viewRotation), event->buttons(), event->modifiers(), event->phase(), event->inverted());
 #else
-    if (vw->geometry().contains(event->pos())) {
+    if (VideoInputGeometry::contains(this, vw, event->pos())) {
         if (!device) {
             return;
         }
-        QPointF pos = vw->mapFrom(this, event->pos());
+        QPointF pos = qsc::ViewGeometry::toSource(vw->mapFrom(this, event->pos()), vw->size(), m_viewRotation);
 
         QWheelEvent wheelEvent(
-            pos, event->globalPosF(), event->pixelDelta(), event->angleDelta(), event->delta(), event->orientation(),
+            pos, event->globalPosF(), qsc::ViewGeometry::deltaToSource(event->pixelDelta(), m_viewRotation), qsc::ViewGeometry::deltaToSource(event->angleDelta(), m_viewRotation), event->delta(), event->orientation(),
             event->buttons(), event->modifiers(), event->phase(), event->source(), event->inverted());
 #endif
-        emit device->wheelEvent(&wheelEvent, m_frameSize, vw->size());
+        emit device->wheelEvent(&wheelEvent, m_frameSize, qsc::ViewGeometry::sourceSize(vw->size(), m_viewRotation));
     }
 }
 
@@ -953,7 +1023,7 @@ void VideoForm::keyPressEvent(QKeyEvent *event)
     }
 
     QWidget *vw = videoWidget();
-    QSize widgetSize = vw ? vw->size() : m_frameSize;
+    QSize widgetSize = vw ? qsc::ViewGeometry::sourceSize(vw->size(), m_viewRotation) : m_frameSize;
     emit device->keyEvent(event, m_frameSize, widgetSize);
 }
 
@@ -964,7 +1034,7 @@ void VideoForm::keyReleaseEvent(QKeyEvent *event)
         return;
     }
     QWidget *vw = videoWidget();
-    QSize widgetSize = vw ? vw->size() : m_frameSize;
+    QSize widgetSize = vw ? qsc::ViewGeometry::sourceSize(vw->size(), m_viewRotation) : m_frameSize;
     emit device->keyEvent(event, m_frameSize, widgetSize);
 }
 
@@ -1001,6 +1071,10 @@ void VideoForm::resizeEvent(QResizeEvent *event)
         }
         return;
     }
+
+    // A bounded, locked view letterboxes inside the user-selected rectangle;
+    // never grow that rectangle in response to a new phone aspect ratio.
+    if (m_viewOrientation.locked()) return;
 
     QSize goodSize = ui->keepRatioWidget->goodSize();
     if (goodSize.isEmpty()) {

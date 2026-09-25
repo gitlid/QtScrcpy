@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QWidget>
 #include "mouselookcursor.h"
+#include "vieworientation.h"
 
 #include "../QtScrcpyCore/include/QtScrcpyCore.h"
 
@@ -39,6 +40,11 @@ public:
     void switchFullScreen();
     bool isHost();
     AppSession *appSession() const { return m_appSession; }
+    bool viewRotationSupported() const { return !m_videoWidget.isNull() && !m_flexDisplay; }
+    int viewRotation() const { return m_viewRotation; }
+    void setViewRotation(int turns);
+    ViewOrientation::Mode viewOrientationMode() const { return m_viewOrientation.mode(); }
+    void setViewOrientationMode(ViewOrientation::Mode mode);
     void openAppTools(bool editKeymap);
 
 private:
@@ -49,6 +55,11 @@ private:
     void updateFPS(quint32 fps) override;
     void onVideoSessionChanged(const QSize &size, bool clientResized) override;
     void grabCursor(bool grab) override;
+
+    bool prepareViewChange();
+    void applyViewOrientation(const ViewOrientation &orientation);
+    void updateViewLayout(bool resizeWindow);
+    friend struct ViewOrientationTestAccess;
 
     void updateStyleSheet(bool vertical);
     QMargins getMargins(bool vertical);
@@ -100,6 +111,8 @@ private:
 
     //inside member
     QSize m_frameSize;
+    ViewOrientation m_viewOrientation;
+    int m_viewRotation = 0; // effective angle for the current source, shared with input
     QSize m_normalSize;
     QPoint m_dragPosition;
     float m_widthHeightRatio = 0.5f;

@@ -44,10 +44,14 @@ static const QString s_vertShader = R"(
     attribute vec3 vertexIn;    // xyz顶点坐标
     attribute vec2 textureIn;   // xy纹理坐标
     varying vec2 textureOut;    // 传递给片段着色器的纹理坐标
+    uniform int viewRotation;
     void main(void)
     {
         gl_Position = vec4(vertexIn, 1.0);  // 1.0表示vertexIn是一个顶点位置
-        textureOut = textureIn; // 纹理坐标直接传递给片段着色器
+        textureOut = textureIn;
+        if (viewRotation == 1) textureOut = vec2(textureIn.y, 1.0 - textureIn.x);
+        else if (viewRotation == 2) textureOut = vec2(1.0 - textureIn.x, 1.0 - textureIn.y);
+        else if (viewRotation == 3) textureOut = vec2(1.0 - textureIn.y, textureIn.x);
     }
 )";
 
@@ -158,6 +162,7 @@ void QYUVOpenGLWidget::initializeGL()
 void QYUVOpenGLWidget::paintGL()
 {
     m_shaderProgram.bind();
+    m_shaderProgram.setUniformValue("viewRotation", m_viewRotation);
 
     if (m_needUpdate) {
         deInitTextures();

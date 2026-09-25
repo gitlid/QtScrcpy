@@ -1,5 +1,6 @@
 #include "devicerotationmenu.h"
 #include <QMessageBox>
+#include <QActionGroup>
 #include <QProgressDialog>
 
 DeviceRotationMenu::DeviceRotationMenu(qsc::IDevice *device, AppSession *apps, QWidget *parent, DeviceRotation *rotation)
@@ -35,7 +36,7 @@ DeviceRotationMenu::DeviceRotationMenu(qsc::IDevice *device, AppSession *apps, Q
     connect(m_rotation,&DeviceRotation::finished,this,[this](bool ok,const QString &message){
         if(!m_connected) return;
         if(ok) QMessageBox::information(parentWidget(),tr("设备旋转"),message);
-        else QMessageBox::warning(parentWidget(),tr("设备旋转"),message);
+        else QMessageBox::warning(parentWidget(),tr("设备旋转"),message + tr("\n手机不支持时，可改用“仅旋转投屏画面”，不改变手机方向。"));
     });
     if(device) {
         auto disconnected=[this]{ m_connected=false; m_rotation->disconnectDevice(); close(); };
@@ -45,10 +46,10 @@ DeviceRotationMenu::DeviceRotationMenu(qsc::IDevice *device, AppSession *apps, Q
 }
 bool DeviceRotationMenu::idleInput() const {
     return m_connected && m_device && !m_device->isActionPlaying() && !m_device->isActionRecording()
-        && (!m_apps || !m_apps->locked());
+        && (!m_apps || (!m_apps->locked() && !m_apps->closingApp()));
 }
 void DeviceRotationMenu::choose(DeviceRotation::Mode mode) {
-    if(!m_connected || !m_device || m_rotation->busy()) return;
+    if(!m_connected || !m_device || m_rotation->busy() || (m_apps && m_apps->closingApp())) return;
     if(!idleInput()) {
         const auto answer=QMessageBox::question(parentWidget(),tr("旋转前停止预制操作"),
             tr("方向改变会影响录制坐标。是否先停止当前预制操作/录制及自动切回，再执行旋转？\n仅暂停仍由宏占用输入；取消则不改变方向。"),
@@ -60,4 +61,45 @@ void DeviceRotationMenu::choose(DeviceRotation::Mode mode) {
     if(!idleInput()) return;
     m_device->prepareKeymapEditing(); m_device->releaseKeyboard();
     m_rotation->request(mode);
+}
+
+void DeviceRotationMenu::addViewRotation(std::function<int()> current, std::function<void(int)> apply,
+        std::function<ViewOrientation::Mode()> currentMode,
+        std::function<void(ViewOrientation::Mode)> applyMode) {
+    if (!current || !apply) return;
+    addSeparator();
+    auto *menu = addMenu(tr("仅旋转投屏画面（不改变手机）"));
+    menu->setObjectName("viewRotationMenu");
+    if (currentMode && applyMode) {
+        auto *group = new QActionGroup(menu); group->setExclusive(true);
+        const QStringList modes{tr("跟随手机方向（取消保持）"), tr("保持横屏展示（自动适配）"), tr("保持竖屏展示（自动适配）")};
+        const QStringList names{"viewFollowPhone", "viewKeepLandscape", "viewKeepPortrait"};
+        for (int i = 0; i < modes.size(); ++i) {
+            auto *action = menu->addAction(modes[i]); action->setCheckable(true);
+            action->setObjectName(names[i]); action->setData(i); group->addAction(action);
+            connect(action, &QAction::triggered, this, [this, applyMode, currentMode, group, i] {
+                const QPointer<DeviceRotationMenu> guard(this);
+                if (m_connected && m_device && !m_rotation->busy()) applyMode(static_cast<ViewOrientation::Mode>(i));
+                if (!guard) return;
+                for (auto *item : group->actions()) item->setChecked(item->data().toInt() == int(currentMode()));
+            });
+        }
+        connect(menu, &QMenu::aboutToShow, this, [currentMode, group] {
+            for (auto *item : group->actions()) item->setChecked(item->data().toInt() == int(currentMode()));
+        });
+        menu->addSeparator();
+    }
+    const QStringList labels{tr("顺时针 90°"), tr("逆时针 90°"), tr("旋转 180°"), tr("恢复画面方向")};
+    const QList<int> deltas{1, -1, 2, 0};
+    for (int i = 0; i < labels.size(); ++i) {
+        auto *action = menu->addAction(labels[i]); action->setObjectName(QString("viewRotation%1").arg(i));
+        const int delta = deltas[i];
+        action->setToolTip(delta ? tr("手动旋转后保持选中的横/竖屏；手机改变方向时自动补偿，不反复调整窗口。")
+                                : tr("清除电脑端展示锁定和旋转，重新跟随手机方向。"));
+        connect(action, &QAction::triggered, this, [this, current, apply, applyMode, delta] {
+            if (!m_connected || !m_device || m_rotation->busy()) return;
+            if (!delta && applyMode) applyMode(ViewOrientation::FollowPhone);
+            else apply(delta ? current() + delta : 0);
+        });
+    }
 }

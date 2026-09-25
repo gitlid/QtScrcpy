@@ -1,7 +1,7 @@
 name: Device rotation regression
 on:
   push:
-    branches: [dev, feature/device-rotation]
+    branches: [dev, feature/device-rotation, feature/live-tabs-rom-fix, feature/stable-view-orientation]
     paths: ['QtScrcpy/ui/**', 'QtScrcpy/QtScrcpyCore', 'tests/apps/**', 'CMakeLists.txt', '.github/workflows/device-rotation.yml']
   pull_request:
     branches: [dev]
@@ -34,7 +34,7 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
           QT_QPA_PLATFORM: offscreen
         run: |
-          ctest --test-dir build-rotation -R '^rotation_' --output-on-failure --output-junit rotation-results.xml
+          ctest --test-dir build-rotation -E '^view_render$' --output-on-failure --output-junit rotation-results.xml
           git diff --exit-code
       - name: Preserve sources for review
         if: always()

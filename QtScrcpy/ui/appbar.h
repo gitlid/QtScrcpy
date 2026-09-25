@@ -20,6 +20,8 @@ protected:
 private:
     void refresh();
     void chooseApp();
+    void confirmCloseApp(const QString &packageName);
+    void refreshStatus();
     void scheduleOverflow();
     void updateOverflow();
     void populateOverflow();
@@ -28,6 +30,6 @@ private:
     QLabel *m_status;
     QToolButton *m_add, *m_keys, *m_macros, *m_stop, *m_more;
     QMenu *m_overflow;
-    bool m_overflowQueued = false;
+    bool m_overflowQueued = false, m_confirmingClose = false;
 };
 #endif

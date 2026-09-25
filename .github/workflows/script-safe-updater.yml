@@ -1,0 +1,146 @@
+name: Script-safe Windows updater
+on:
+  push:
+    branches: [feature/script-safe-overlay-updater, feature/live-tabs-rom-fix, feature/stable-view-orientation]
+    paths: ['tools/updater/**', '.github/workflows/script-safe-updater.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: safe-updater-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build-test-package:
+    if: github.repository == 'gitlid/QtScrcpy'
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Preserve source line endings
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Retrieve previously verified 0.4.5 program package
+        uses: actions/download-artifact@v4
+        with:
+          name: QtScrcpy-Keymapper-win64
+          run-id: 35198265105
+          github-token: ${{ github.token }}
+          path: baseline
+      - name: Retrieve old 0.4.4 package for real upgrade regression
+        uses: actions/download-artifact@v4
+        with:
+          name: QtScrcpy-Keymapper-win64
+          run-id: 35190929124
+          github-token: ${{ github.token }}
+          path: old-release
+      - name: Verify payload and compile committed updater sources
+        run: |
+          $ErrorActionPreference='Stop'
+          $payload=(Resolve-Path 'baseline/QtScrcpy-keymapper-0.4.5-rc.1-win64.zip').Path
+          $expected='380026258db37136df2467d88c6cf2f1881140a4240d5c8bee3fe89913e6432e'
+          if((Get-FileHash $payload -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected){throw 'Unverified payload'}
+          New-Item -ItemType Directory out,dist -Force | Out-Null
+          $csc=Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+          $refs=Join-Path ${env:ProgramFiles(x86)} 'Reference Assemblies/Microsoft/Framework/.NETFramework/v4.8'
+          $core=(Resolve-Path 'tools/updater/UpdaterCore.cs').Path
+          $gui=(Resolve-Path 'tools/updater/UpdaterGui.cs').Path
+          $tests=(Resolve-Path 'tools/updater/UpdaterTests.cs').Path
+          $faults=(Resolve-Path 'tools/updater/UpdaterFailureTests.cs').Path
+          $upgrade=(Resolve-Path 'tools/updater/UpdaterUpgradeTest.cs').Path
+          $manifest=(Resolve-Path 'tools/updater/updater.manifest').Path
+          $output=(Resolve-Path out).Path
+          $common=@('/nologo','/utf8output','/codepage:65001','/warnaserror+','/platform:x64',"/lib:$refs",'/r:System.dll','/r:System.Core.dll','/r:System.Xml.dll','/r:System.Xml.Linq.dll','/r:System.IO.Compression.dll','/r:System.IO.Compression.FileSystem.dll')
+          & $csc @common /target:winexe "/out:$output\QtScrcpyUpdate.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll "/win32manifest:$manifest" "/resource:$payload,qsc-payload.zip" $core $gui
+          if($LASTEXITCODE -ne 0){throw 'GUI compilation failed'}
+          & $csc @common /target:exe /define:UPDATER_TEST "/out:$output\UpdaterTests.exe" $core $tests
+          if($LASTEXITCODE -ne 0){throw 'Test compilation failed'}
+          & $csc @common /target:exe /define:UPDATER_TEST "/out:$output\UpdaterFailureTests.exe" $core $faults
+          if($LASTEXITCODE -ne 0){throw 'Fault test compilation failed'}
+          & $csc @common /target:exe "/out:$output\UpdaterUpgradeTest.exe" $core $upgrade
+          if($LASTEXITCODE -ne 0){throw 'Real upgrade test compilation failed'}
+          '<?xml version="1.0" encoding="utf-8"?><configuration><startup><supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8"/></startup></configuration>' | Set-Content out/QtScrcpyUpdate.exe.config -Encoding utf8
+          git diff --exit-code
+          if($LASTEXITCODE -ne 0){throw 'Build changed tracked source files'}
+      - name: Windows file safety and real-payload integration tests
+        run: |
+          $payload=(Resolve-Path 'baseline/QtScrcpy-keymapper-0.4.5-rc.1-win64.zip').Path
+          & ./out/UpdaterTests.exe $payload 2>&1 | Tee-Object out/updater-tests.log
+          if($LASTEXITCODE -ne 0){throw 'Updater regression failed'}
+          & ./out/UpdaterFailureTests.exe 2>&1 | Tee-Object out/fault-matrix.log
+          if($LASTEXITCODE -ne 0){throw 'Fault matrix failed'}
+          $old=(Resolve-Path 'old-release/QtScrcpy-keymapper-0.4.4-rc.1-win64.zip').Path
+          & ./out/UpdaterUpgradeTest.exe $payload $old 2>&1 | Tee-Object out/real-upgrade.log
+          if($LASTEXITCODE -ne 0){throw 'Real 0.4.4 to 0.4.5 upgrade regression failed'}
+      - name: Check embedded payload and native GUI startup
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=(Resolve-Path 'out/QtScrcpyUpdate.exe').Path
+          $p=Start-Process $exe -ArgumentList '--check-payload' -PassThru
+          if(-not $p.WaitForExit(60000)){throw 'Embedded payload check timeout'}
+          if($p.ExitCode -ne 0){throw 'Embedded payload check failed'}
+          $p=Start-Process $exe -PassThru
+          $clock=[Diagnostics.Stopwatch]::StartNew()
+          do {
+            $p.Refresh()
+            if($p.HasExited){throw "GUI exited during startup: $($p.ExitCode)"}
+            if($p.MainWindowHandle -ne [IntPtr]::Zero){break}
+            Start-Sleep -Milliseconds 200
+          } while($clock.Elapsed.TotalSeconds -lt 20)
+          if($p.MainWindowHandle -eq [IntPtr]::Zero){
+            Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=(Get-Date).AddMinutes(-2)} -ErrorAction SilentlyContinue | Select-Object -First 10 TimeCreated,ProviderName,Message | Format-List | Out-File out/gui-error.log
+            throw 'GUI did not expose a visible native window'
+          }
+          Add-Type -AssemblyName System.Drawing
+          Add-Type @'
+          using System; using System.Runtime.InteropServices;
+          public static class QscWindowCapture {
+            [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left,Top,Right,Bottom; }
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out RECT r);
+            [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr dc,uint flags);
+          }
+          '@
+          $rect=New-Object QscWindowCapture+RECT
+          if(-not [QscWindowCapture]::GetWindowRect($p.MainWindowHandle,[ref]$rect)){throw 'Cannot inspect GUI rectangle'}
+          $image=New-Object System.Drawing.Bitmap ($rect.Right-$rect.Left),($rect.Bottom-$rect.Top)
+          $graphics=[System.Drawing.Graphics]::FromImage($image)
+          $dc=$graphics.GetHdc()
+          try {$captured=[QscWindowCapture]::PrintWindow($p.MainWindowHandle,$dc,2)} finally {$graphics.ReleaseHdc($dc)}
+          if($captured){$image.Save((Join-Path $PWD 'out/updater-window.png'),[System.Drawing.Imaging.ImageFormat]::Png)}
+          $graphics.Dispose();$image.Dispose()
+          if(-not $p.CloseMainWindow()){throw 'GUI did not accept normal close'}
+          if(-not $p.WaitForExit(10000)){throw 'GUI did not close'}
+          "Native GUI open/close and embedded payload SHA-256 passed. Screenshot=$captured" | Set-Content out/gui-check.txt
+      - name: Package updater and provenance
+        run: |
+          $ErrorActionPreference='Stop'
+          Copy-Item tools/updater/README.zh-CN.md out/README.zh-CN.md
+          $hash=(Get-FileHash out/QtScrcpyUpdate.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  QtScrcpyUpdate.exe" | Set-Content out/QtScrcpyUpdate.exe.sha256 -Encoding ascii
+          @{updaterVersion='1.2.0';applicationVersion='0.4.5-rc.1';sourceCommit=$env:GITHUB_SHA;runId=$env:GITHUB_RUN_ID;payloadSourceCommit='162341f36cfffe7c27fcfc22b6d3ecaeb7127610';payloadBuildCommit='162341f36cfffe7c27fcfc22b6d3ecaeb7127610';payloadSHA256='380026258db37136df2467d88c6cf2f1881140a4240d5c8bee3fe89913e6432e';updaterSHA256=$hash;deviceTested=$false;digitalSignature=$false} | ConvertTo-Json | Set-Content out/update-build-info.json -Encoding utf8
+          $files=@('out/QtScrcpyUpdate.exe','out/QtScrcpyUpdate.exe.config','out/QtScrcpyUpdate.exe.sha256','out/README.zh-CN.md','out/update-build-info.json')
+          Compress-Archive -Path $files -DestinationPath dist/QtScrcpy-0.4.5-script-safe-update-win64.zip
+          $zipHash=(Get-FileHash dist/QtScrcpy-0.4.5-script-safe-update-win64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$zipHash  QtScrcpy-0.4.5-script-safe-update-win64.zip" | Set-Content dist/QtScrcpy-0.4.5-script-safe-update-win64.zip.sha256 -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QtScrcpy-script-safe-update-win64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: script-safe-updater-verification
+          path: |
+            out/*.log
+            out/*.png
+            out/gui-check.txt
+            out/update-build-info.json
+            tools/updater/
+          if-no-files-found: warn
+          retention-days: 30
