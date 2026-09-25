@@ -11,6 +11,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_library(qsc_applications STATIC
         ${APP_ROOT}/ui/appsession.cpp ${APP_ROOT}/ui/appsession.h ${APP_ROOT}/ui/appbar.cpp ${APP_ROOT}/ui/appbar.h
         ${APP_ROOT}/ui/apprecenttasks.cpp ${APP_ROOT}/ui/apprecenttasks.h
+        ${APP_ROOT}/ui/systempanelaction.cpp ${APP_ROOT}/ui/systempanelaction.h
         ${APP_ROOT}/ui/devicerotation.cpp ${APP_ROOT}/ui/devicerotation.h
         ${APP_ROOT}/ui/devicerotationmenu.cpp ${APP_ROOT}/ui/devicerotationmenu.h
         ${APP_ROOT}/QtScrcpyCore/include/QtScrcpyCore.h ${APP_ROOT}/QtScrcpyCore/include/adbprocess.h
@@ -126,3 +127,14 @@ if(MSVC)
 endif()
 add_test(NAME viewlock_menu COMMAND view_orientation_menu_tests)
 set_tests_properties(viewlock_menu PROPERTIES TIMEOUT 20 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(systempanel_action_tests systempanel_action_test.cpp)
+set_target_properties(systempanel_action_tests PROPERTIES AUTOMOC ON CXX_STANDARD 11)
+target_link_libraries(systempanel_action_tests PRIVATE qsc_applications)
+if(MSVC)
+    target_compile_options(systempanel_action_tests PRIVATE /utf-8 /W3 /WX)
+endif()
+foreach(case_name IN ITEMS normal vivo notification retained cancel stale failure busy disconnect)
+    add_test(NAME panelui_${case_name} COMMAND systempanel_action_tests ${case_name})
+    set_tests_properties(panelui_${case_name} PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endforeach()

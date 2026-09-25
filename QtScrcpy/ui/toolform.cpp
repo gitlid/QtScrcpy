@@ -12,11 +12,22 @@
 #include "videoform.h"
 #include "../groupcontroller/groupcontroller.h"
 
-ToolForm::ToolForm(QWidget *adsorbWidget, AdsorbPositions adsorbPos) : MagneticWidget(adsorbWidget, adsorbPos), ui(new Ui::ToolForm)
+ToolForm::ToolForm(VideoForm *view, QWidget *parent) : QWidget(parent ? parent : view), ui(new Ui::ToolForm), m_view(view)
 {
     ui->setupUi(this);
-    setWindowFlags(windowFlags() | Qt::FramelessWindowHint);
-    //setWindowFlags(windowFlags() & ~Qt::WindowMinMaxButtonsHint);
+    setAttribute(Qt::WA_NoMousePropagation);
+    setFocusPolicy(Qt::NoFocus);
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    ui->verticalLayout->setContentsMargins(4, 6, 4, 6);
+    ui->verticalLayout->setSpacing(4);
+    ui->verticalSpacer->changeSize(0, 6, QSizePolicy::Minimum, QSizePolicy::Fixed);
+    for (auto *button : findChildren<QPushButton *>()) {
+        button->setFixedSize(44, 36);
+        button->setFocusPolicy(Qt::NoFocus);
+        button->setAutoDefault(false);
+    }
+    ui->expandNotifyBtn->setToolTip(tr("展开通知栏：从手机左上方向下滑动（Ctrl+N）"));
+    ui->expandSettingsBtn->setToolTip(tr("展开设置面板：从手机右上方向下滑动（Ctrl+Alt+N）"));
 
     updateGroupControl();
 
@@ -35,7 +46,7 @@ void ToolForm::setSerial(const QString &serial)
     if (m_rotationMenu) return; // Bind to the original live device, not a later replacement.
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (device && !device->isCameraMode() && !device->isFlexDisplay()) {
-        auto *video = qobject_cast<VideoForm *>(parentWidget());
+        auto *video = m_view.data();
         m_rotationMenu = new DeviceRotationMenu(device, video ? video->appSession() : nullptr, this);
         if (video && video->viewRotationSupported()) {
             const QPointer<VideoForm> view = video;
@@ -126,47 +137,6 @@ void ToolForm::updateGroupControl()
     GroupController::instance().updateDeviceState(m_serial);
 }
 
-void ToolForm::mousePressEvent(QMouseEvent *event)
-{
-    if (event->button() == Qt::LeftButton) {
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-        m_dragPosition = event->globalPos() - frameGeometry().topLeft();
-#else
-        m_dragPosition = event->globalPosition().toPoint() - frameGeometry().topLeft();
-#endif
-        event->accept();
-    }
-}
-
-void ToolForm::mouseReleaseEvent(QMouseEvent *event)
-{
-    Q_UNUSED(event)
-}
-
-void ToolForm::mouseMoveEvent(QMouseEvent *event)
-{
-    if (event->buttons() & Qt::LeftButton) {
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-        move(event->globalPos() - m_dragPosition);
-#else
-        move(event->globalPosition().toPoint() - m_dragPosition);
-#endif
-        event->accept();
-    }
-}
-
-void ToolForm::showEvent(QShowEvent *event)
-{
-    Q_UNUSED(event)
-    qDebug() << "show event";
-}
-
-void ToolForm::hideEvent(QHideEvent *event)
-{
-    Q_UNUSED(event)
-    qDebug() << "hide event";
-}
-
 void ToolForm::on_fullScreenBtn_clicked()
 {
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
@@ -174,7 +144,7 @@ void ToolForm::on_fullScreenBtn_clicked()
         return;
     }
 
-    dynamic_cast<VideoForm*>(parent())->switchFullScreen();
+    if (m_view) m_view->switchFullScreen();
 }
 
 void ToolForm::on_returnBtn_clicked()
@@ -264,14 +234,14 @@ void ToolForm::on_expandNotifyBtn_clicked()
     if (!device) {
         return;
     }
-    device->expandNotificationPanel();
+    if (m_view) m_view->expandSystemPanel(false);
 }
 
 void ToolForm::on_expandSettingsBtn_clicked()
 {
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (device) {
-        device->expandSettingsPanel();
+        if (m_view) m_view->expandSystemPanel(true);
     }
 }
 
@@ -349,7 +319,7 @@ void ToolForm::openActionMacro(bool editKeymap)
         return;
     }
     if (!m_actionMacroDialog) {
-        auto *video = qobject_cast<VideoForm *>(parentWidget());
+        auto *video = m_view.data();
         m_actionMacroDialog = new ActionMacroDialog(m_serial, this, video ? video->appSession() : nullptr);
     }
     m_actionMacroDialog->show();

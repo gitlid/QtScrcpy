@@ -21,6 +21,8 @@ class QLabel;
 class MetalVideoWidget;
 class AppSession;
 class AppBar;
+class ToolDock;
+class SystemPanelAction;
 class VideoForm : public QWidget, public qsc::DeviceObserver
 {
     Q_OBJECT
@@ -46,6 +48,7 @@ public:
     ViewOrientation::Mode viewOrientationMode() const { return m_viewOrientation.mode(); }
     void setViewOrientationMode(ViewOrientation::Mode mode);
     void openAppTools(bool editKeymap);
+    void expandSystemPanel(bool settings);
 
 private:
     void onFrame(int width, int height, uint8_t* dataY, uint8_t* dataU, uint8_t* dataV,
@@ -66,6 +69,8 @@ private:
     void initUI();
 
     void showToolForm(bool show = true);
+    void ensureToolForm();
+    int toolDockWidth() const;
     void moveCenter();
     void installShortcut();
     QRect getScreenRect();
@@ -101,6 +106,8 @@ private:
     AppSession *m_appSession = nullptr;
     AppBar *m_appBar = nullptr;
     QPointer<ToolForm> m_toolForm;
+    ToolDock *m_toolDock = nullptr;
+    SystemPanelAction *m_systemPanels = nullptr;
     QPointer<QWidget> m_loadingWidget;
     QPointer<QYUVOpenGLWidget> m_videoWidget;
 

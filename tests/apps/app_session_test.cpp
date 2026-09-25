@@ -40,10 +40,11 @@ public:
     void mouseEvent(const QMouseEvent *, const QSize &, const QSize &) override {}
     void wheelEvent(const QWheelEvent *, const QSize &, const QSize &) override {}
     void keyEvent(const QKeyEvent *, const QSize &, const QSize &) override {}
-    void postGoBack() override {} void postGoHome() override {} void postGoMenu() override {} void postAppSwitch() override {}
+    int backCount = 0; QStringList panelRequests;
+    void postGoBack() override { ++backCount; } void postGoHome() override {} void postGoMenu() override {} void postAppSwitch() override {}
     void postPower() override {} void postVolumeUp() override {} void postVolumeDown() override {}
     void postCopy() override {} void postCut() override {} void setDisplayPower(bool) override {}
-    void expandNotificationPanel() override {} void expandSettingsPanel() override {} void collapsePanel() override {}
+    void expandNotificationPanel() override { panelRequests.append("notifications"); } void expandSettingsPanel() override { panelRequests.append("settings"); } void collapsePanel() override {}
     void rotateDevice() override {} void startApp(const QString &) override {} void resizeDisplay(const QSize &) override {}
     void postBackOrScreenOn(bool) override {} void postTextInput(QString &) override {} void requestDeviceClipboard() override {}
     void setDeviceClipboard(bool) override {} void clipboardPaste() override {} void pushFileRequest(const QString &, const QString &) override {}

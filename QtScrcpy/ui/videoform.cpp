@@ -22,6 +22,8 @@
 #include "iconhelper.h"
 #include "qyuvopenglwidget.h"
 #include "toolform.h"
+#include "tooldock.h"
+#include "systempanelaction.h"
 #include "mousetap/mousetap.h"
 #include "ui_videoform.h"
 #include "videoform.h"
@@ -39,6 +41,16 @@
 VideoForm::VideoForm(bool framelessWindow, bool skin, bool showToolbar, int decodeMode, QWidget *parent) : QWidget(parent), ui(new Ui::videoForm), m_skin(skin), m_decodeMode(decodeMode)
 {
     ui->setupUi(this);
+    this->show_toolbar = showToolbar;
+    auto *content = new QHBoxLayout;
+    content->setContentsMargins(0, 0, 0, 0);
+    content->setSpacing(0);
+    ui->verticalLayout->removeWidget(ui->keepRatioWidget);
+    content->addWidget(ui->keepRatioWidget, 1);
+    m_toolDock = new ToolDock(this);
+    content->addWidget(m_toolDock);
+    ui->verticalLayout->addLayout(content, 1);
+    m_toolDock->setVisible(showToolbar);
     m_flexResizeTimer.setSingleShot(true);
     m_flexResizeTimer.setInterval(300);
     connect(&m_flexResizeTimer, &QTimer::timeout, this, [this]() {
@@ -49,6 +61,7 @@ VideoForm::VideoForm(bool framelessWindow, bool skin, bool showToolbar, int deco
     });
     initUI();
     installShortcut();
+    if (showToolbar) ensureToolForm();
     updateShowSize(size());
     bool vertical = size().height() > size().width();
     this->show_toolbar = showToolbar;
@@ -197,7 +210,7 @@ void VideoForm::removeBlackRect()
 {
     QSize size = ui->keepRatioWidget->goodSize();
     const auto margins = layout()->contentsMargins();
-    size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom() + (m_appBar ? m_appBar->height() : 0));
+    size += QSize(margins.left() + margins.right() + toolDockWidth(), margins.top() + margins.bottom() + (m_appBar ? m_appBar->height() : 0));
     resize(size);
 }
 
@@ -255,25 +268,49 @@ void VideoForm::setSerial(const QString &serial)
         resize(width(), height() + m_appBar->height());
         m_appSession->start();
     }
+    if (m_toolForm) m_toolForm->setSerial(m_serial);
+    if (device && !m_systemPanels && !device->isCameraMode()) {
+        m_systemPanels = new SystemPanelAction(device, this);
+        m_systemPanels->setBlocked([this] { return m_appSession && (m_appSession->locked() || m_appSession->closingApp()); });
+        ActionMacroHotkey::instance()->watchControls(m_systemPanels,
+            [this] { m_systemPanels->cancel(); }, [this] { m_systemPanels->cancel(); });
+        connect(m_systemPanels, &SystemPanelAction::failure, this, [this](const QString &message) {
+            QMessageBox::information(this, tr("系统面板"), message);
+        });
+    }
+}
+
+void VideoForm::expandSystemPanel(bool settings)
+{
+    if (m_systemPanels) m_systemPanels->request(settings);
 }
 
 void VideoForm::openAppTools(bool editKeymap)
 {
-    if (!m_toolForm) {
-        m_toolForm = new ToolForm(this, ToolForm::AP_OUTSIDE_RIGHT);
-        m_toolForm->setSerial(m_serial);
-    }
+    ensureToolForm();
     m_toolForm->openActionMacro(editKeymap);
 }
 
 void VideoForm::showToolForm(bool show)
 {
+    if (show) ensureToolForm();
+    m_toolDock->setVisible(show);
+}
+
+void VideoForm::ensureToolForm()
+{
     if (!m_toolForm) {
-        m_toolForm = new ToolForm(this, ToolForm::AP_OUTSIDE_RIGHT);
+        m_toolForm = new ToolForm(this);
+        m_toolDock->setWidget(m_toolForm);
+        m_toolDock->setFixedWidth(qMax(66, m_toolForm->minimumSizeHint().width()
+            + m_toolDock->verticalScrollBar()->sizeHint().width() + 4));
         m_toolForm->setSerial(m_serial);
     }
-    m_toolForm->move(pos().x() + geometry().width(), pos().y() + 30);
-    m_toolForm->setVisible(show);
+}
+
+int VideoForm::toolDockWidth() const
+{
+    return m_toolDock && !m_toolDock->isHidden() ? m_toolDock->width() : 0;
 }
 
 void VideoForm::moveCenter()
@@ -417,7 +454,7 @@ void VideoForm::installShortcut()
         if (!device) {
             return;
         }
-        emit device->expandNotificationPanel();
+        expandSystemPanel(false);
     });
 
     shortcut = new QShortcut(QKeySequence("Ctrl+Alt+n"), this);
@@ -425,7 +462,7 @@ void VideoForm::installShortcut()
     connect(shortcut, &QShortcut::activated, this, [this]() {
         auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
         if (device) {
-            device->expandSettingsPanel();
+            expandSystemPanel(true);
         }
     });
 
@@ -649,6 +686,7 @@ void VideoForm::updateViewLayout(bool resizeWindow)
         updateStyleSheet(vertical);
     }
     if (m_appBar) showSize.rheight() += m_appBar->height();
+    showSize.rwidth() += toolDockWidth();
     if (showSize != size()) {
         resize(showSize);
         moveCenter();
@@ -709,7 +747,7 @@ void VideoForm::switchFullScreen()
 #ifdef Q_OS_MACOS
         //setWindowFlags(windowFlags() & ~Qt::FramelessWindowHint);
 #endif
-        showToolForm(false);
+        showToolForm(this->show_toolbar);
         if (m_skin) {
             layout()->setContentsMargins(0, 0, 0, 0);
         }
@@ -784,9 +822,6 @@ void VideoForm::staysOnTop(bool top)
         needShow = true;
     }
     setWindowFlag(Qt::WindowStaysOnTopHint, top);
-    if (m_toolForm) {
-        m_toolForm->setWindowFlag(Qt::WindowStaysOnTopHint, top);
-    }
     if (needShow) {
         show();
     }
@@ -1054,11 +1089,7 @@ void VideoForm::paintEvent(QPaintEvent *paint)
 void VideoForm::showEvent(QShowEvent *event)
 {
     Q_UNUSED(event)
-    if (!isFullScreen() && this->show_toolbar) {
-        QTimer::singleShot(500, this, [this](){
-            showToolForm(this->show_toolbar);
-        });
-    }
+    showToolForm(this->show_toolbar);
 }
 
 void VideoForm::resizeEvent(QResizeEvent *event)
@@ -1081,6 +1112,7 @@ void VideoForm::resizeEvent(QResizeEvent *event)
         return;
     }
     QSize curSize = size();
+    goodSize.rwidth() += toolDockWidth();
     if (m_appBar) goodSize.rheight() += m_appBar->height();
     // 限制VideoForm尺寸不能小于keepRatioWidget good size
     if (m_widthHeightRatio > 1.0f) {
@@ -1102,6 +1134,7 @@ void VideoForm::resizeEvent(QResizeEvent *event)
 
 void VideoForm::closeEvent(QCloseEvent *event)
 {
+    if (m_systemPanels) m_systemPanels->cancel();
     if (m_appSession) m_appSession->shutdown();
     grabCursor(false);
     Q_UNUSED(event)
