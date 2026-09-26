@@ -6,6 +6,7 @@
 #include "actionmacrodialog.h"
 #include "devicerotationmenu.h"
 #include <QShortcut>
+#include <QSignalBlocker>
 #include "iconhelper.h"
 #include "toolform.h"
 #include "ui_toolform.h"
@@ -28,6 +29,15 @@ ToolForm::ToolForm(VideoForm *view, QWidget *parent) : QWidget(parent ? parent :
     }
     ui->expandNotifyBtn->setToolTip(tr("展开通知栏：从手机左上方向下滑动（Ctrl+N）"));
     ui->expandSettingsBtn->setToolTip(tr("展开设置面板：从手机右上方向下滑动（Ctrl+Alt+N）"));
+    ui->phoneCursorBtn->setToolTip(tr("手机跟随光标：在手机屏幕显示与电脑鼠标位置对应的圆环"));
+    connect(ui->phoneCursorBtn, &QPushButton::toggled, this, [this](bool enabled) {
+        if (m_view) m_view->setPhoneCursorEnabled(enabled);
+    });
+    if (m_view) connect(m_view, &VideoForm::phoneCursorEnabledChanged, this, [this](bool enabled) {
+        const QSignalBlocker blocker(ui->phoneCursorBtn);
+        ui->phoneCursorBtn->setChecked(enabled);
+        ui->phoneCursorBtn->setStyleSheet(enabled ? "color: #00e5ff" : "");
+    });
 
     updateGroupControl();
 
@@ -43,6 +53,11 @@ void ToolForm::setSerial(const QString &serial)
 {
     m_serial = serial;
     updateCameraMode();
+    const bool cursorSupported = m_view && m_view->phoneCursorSupported();
+    ui->phoneCursorBtn->setEnabled(cursorSupported);
+    ui->phoneCursorBtn->setToolTip(cursorSupported
+        ? tr("手机跟随光标：在手机屏幕显示与电脑鼠标位置对应的圆环")
+        : tr("手机光标需要主屏幕完整投屏，且采集方向设为自动；支持仅旋转投屏画面。"));
     if (m_rotationMenu) return; // Bind to the original live device, not a later replacement.
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (device && !device->isCameraMode() && !device->isFlexDisplay()) {
@@ -84,6 +99,7 @@ void ToolForm::updateCameraMode()
     ui->expandSettingsBtn->setVisible(!camera);
     ui->rotateBtn->setVisible(!camera);
     ui->touchBtn->setVisible(!camera);
+    ui->phoneCursorBtn->setVisible(!camera);
     ui->openScreenBtn->setVisible(!camera);
     ui->closeScreenBtn->setVisible(!camera);
     ui->powerBtn->setVisible(!camera);
@@ -118,6 +134,7 @@ void ToolForm::initStyle()
     IconHelper::Instance()->SetIcon(ui->rotateBtn, QChar(0xf021), 15);
     IconHelper::Instance()->SetIcon(ui->screenShotBtn, QChar(0xf0c4), 15);
     IconHelper::Instance()->SetIcon(ui->touchBtn, QChar(0xf111), 15);
+    IconHelper::Instance()->SetIcon(ui->phoneCursorBtn, QChar(0xf245), 15);
     IconHelper::Instance()->SetIcon(ui->groupControlBtn, QChar(0xf0c0), 15);
     IconHelper::Instance()->SetIcon(ui->clipboardBtn, QChar(0xf0c5), 15);
     IconHelper::Instance()->SetIcon(ui->actionMacroBtn, QChar(0xf144), 15);

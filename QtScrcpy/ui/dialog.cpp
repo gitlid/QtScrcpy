@@ -25,6 +25,7 @@
 #include "dialog.h"
 #include "ui_dialog.h"
 #include "videoform.h"
+#include "phonecursor.h"
 #include "../groupcontroller/groupcontroller.h"
 
 #ifdef Q_OS_WIN32
@@ -724,6 +725,7 @@ void Dialog::on_startServerBtn_clicked()
     }
 
     const bool needsVirtualDisplayCheck = !params.newDisplay.isEmpty();
+    m_phoneCursorCompatible.insert(params.serial, PhoneCursor::supports(params));
     if (!camera && !needsVirtualDisplayCheck) {
         qsc::IDeviceManage::getInstance().connectDevice(params);
         return;
@@ -1056,7 +1058,7 @@ void Dialog::onDeviceConnected(bool success, const QString &serial, const QStrin
         return;
     }
     auto videoForm = new VideoForm(ui->framelessCheck->isChecked(), Config::getInstance().getSkin(), ui->showToolbar->isChecked(), ui->decodeModeBox->currentIndex());
-    videoForm->setSerial(serial);
+    videoForm->setSerial(serial, m_phoneCursorCompatible.value(serial, false));
 
     qsc::IDeviceManage::getInstance().getDevice(serial)->setUserData(static_cast<void*>(videoForm));
     qsc::IDeviceManage::getInstance().getDevice(serial)->registerDeviceObserver(videoForm);

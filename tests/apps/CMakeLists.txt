@@ -9,6 +9,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Network)
     set(APP_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../QtScrcpy)
     add_library(qsc_applications STATIC
+        ${APP_ROOT}/ui/phonecursor.cpp ${APP_ROOT}/ui/phonecursor.h
+        ${APP_ROOT}/ui/phonecursoradb.cpp ${APP_ROOT}/ui/phonecursoradb.h
         ${APP_ROOT}/ui/appsession.cpp ${APP_ROOT}/ui/appsession.h ${APP_ROOT}/ui/appbar.cpp ${APP_ROOT}/ui/appbar.h
         ${APP_ROOT}/ui/apprecenttasks.cpp ${APP_ROOT}/ui/apprecenttasks.h
         ${APP_ROOT}/ui/systempanelaction.cpp ${APP_ROOT}/ui/systempanelaction.h
@@ -28,6 +30,17 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         endif()
     endif()
 endif()
+add_executable(phone_cursor_tests phone_cursor_test.cpp)
+set_target_properties(phone_cursor_tests PROPERTIES AUTOMOC ON CXX_STANDARD 11)
+target_link_libraries(phone_cursor_tests PRIVATE qsc_applications)
+if(MSVC)
+    target_compile_options(phone_cursor_tests PRIVATE /utf-8 /W3 /WX)
+endif()
+foreach(case_name IN ITEMS geometry bounds supports coalescing visibility heartbeat timeout pending_stop failure lifetime)
+    add_test(NAME phone_cursor_${case_name} COMMAND phone_cursor_tests ${case_name})
+    set_tests_properties(phone_cursor_${case_name} PROPERTIES TIMEOUT 10)
+endforeach()
+
 add_executable(app_session_tests app_session_test.cpp)
 set_target_properties(app_session_tests PROPERTIES AUTOMOC ON CXX_STANDARD 11)
 target_link_libraries(app_session_tests PRIVATE qsc_applications)

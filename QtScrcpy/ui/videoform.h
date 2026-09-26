@@ -23,6 +23,7 @@ class AppSession;
 class AppBar;
 class ToolDock;
 class SystemPanelAction;
+class PhoneCursor;
 class VideoForm : public QWidget, public qsc::DeviceObserver
 {
     Q_OBJECT
@@ -33,7 +34,12 @@ public:
     void staysOnTop(bool top = true);
     void updateShowSize(const QSize &newSize);
     void updateRender(int width, int height, uint8_t* dataY, uint8_t* dataU, uint8_t* dataV, int linesizeY, int linesizeU, int linesizeV);
-    void setSerial(const QString& serial);
+    void setSerial(const QString& serial, bool phoneCursorSupported = false);
+    bool phoneCursorSupported() const { return m_phoneCursor != nullptr; }
+    void setPhoneCursorEnabled(bool enabled);
+signals:
+    void phoneCursorEnabledChanged(bool enabled);
+public:
     QRect getGrabCursorRect();
     const QSize &frameSize();
     void resizeSquare();
@@ -62,6 +68,7 @@ private:
     bool prepareViewChange();
     void applyViewOrientation(const ViewOrientation &orientation);
     void updateViewLayout(bool resizeWindow);
+    void updatePhoneCursor();
     friend struct ViewOrientationTestAccess;
 
     void updateStyleSheet(bool vertical);
@@ -108,6 +115,8 @@ private:
     QPointer<ToolForm> m_toolForm;
     ToolDock *m_toolDock = nullptr;
     SystemPanelAction *m_systemPanels = nullptr;
+    PhoneCursor *m_phoneCursor = nullptr;
+    QTimer m_phoneCursorTimer;
     QPointer<QWidget> m_loadingWidget;
     QPointer<QYUVOpenGLWidget> m_videoWidget;
 

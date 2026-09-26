@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.19 FATAL_ERROR)
 project(all)
 include(CTest)
 add_subdirectory(QtScrcpy)
+add_subdirectory(QtScrcpy/phonecursor)
 target_sources(QtScrcpy PRIVATE QtScrcpy/ui/keymapeditor.cpp QtScrcpy/ui/keymapeditor.h QtScrcpy/ui/keymapdocument.h QtScrcpy/ui/macroexecutionoptions.h)
 option(QSC_WITH_KEYMAPPER "Embed the offline upstream ScrcpyKeyMapper editor" ON)
 if(QSC_WITH_KEYMAPPER)
@@ -19,6 +20,8 @@ endif()
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Network)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Network)
 add_library(qsc_applications STATIC QtScrcpy/ui/appsession.cpp QtScrcpy/ui/appsession.h
+    QtScrcpy/ui/phonecursor.cpp QtScrcpy/ui/phonecursor.h
+    QtScrcpy/ui/phonecursoradb.cpp QtScrcpy/ui/phonecursoradb.h
     QtScrcpy/ui/appbar.cpp QtScrcpy/ui/appbar.h QtScrcpy/ui/appbinding.h
     QtScrcpy/ui/systempanelaction.cpp QtScrcpy/ui/systempanelaction.h
     QtScrcpy/ui/apprecenttasks.cpp QtScrcpy/ui/apprecenttasks.h

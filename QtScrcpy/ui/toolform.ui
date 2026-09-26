@@ -94,6 +94,13 @@
     </widget>
    </item>
    <item>
+    <widget class="QPushButton" name="phoneCursorBtn">
+     <property name="checkable"><bool>true</bool></property>
+     <property name="toolTip"><string>手机跟随光标</string></property>
+     <property name="text"><string/></property>
+    </widget>
+   </item>
+   <item>
     <widget class="QPushButton" name="actionMacroBtn">
      <property name="toolTip">
       <string>action macro: record, save, load, loop and stop</string>
