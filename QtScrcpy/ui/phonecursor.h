@@ -4,6 +4,7 @@
 #include <QPointF>
 #include <QSize>
 #include <QTimer>
+#include <QQueue>
 #include "../QtScrcpyCore/include/QtScrcpyCoreDef.h"
 
 class PhoneCursorTransport : public QObject {
@@ -15,7 +16,7 @@ public:
     virtual void close() = 0;
 signals:
     void ready();
-    void acknowledged();
+    void acknowledged(quint64 sequence);
     void failure(const QString &message);
 };
 
@@ -31,6 +32,7 @@ public:
     void update(const QPoint &local, const QSize &view, int turns, const QSize &frame, bool visible);
     void hide();
 signals:
+    void sampleRequested();
     void enabledChanged(bool enabled);
     void failure(const QString &message);
 private:
@@ -39,6 +41,10 @@ private:
     QString m_serial;
     QTimer m_timer;
     QElapsedTimer m_lastSend;
+    QElapsedTimer m_clock;
+    qint64 m_nextFrameNs = 0;
+    quint64 m_sequence = 0, m_acknowledged = 0;
+    QQueue<QPair<quint64, qint64>> m_pending;
     QByteArray m_desired = "H\n", m_sent;
-    bool m_enabled = false, m_ready = false, m_inFlight = false;
+    bool m_enabled = false, m_ready = false;
 };

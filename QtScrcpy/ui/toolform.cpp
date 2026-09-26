@@ -29,7 +29,7 @@ ToolForm::ToolForm(VideoForm *view, QWidget *parent) : QWidget(parent ? parent :
     }
     ui->expandNotifyBtn->setToolTip(tr("展开通知栏：从手机左上方向下滑动（Ctrl+N）"));
     ui->expandSettingsBtn->setToolTip(tr("展开设置面板：从手机右上方向下滑动（Ctrl+Alt+N）"));
-    ui->phoneCursorBtn->setToolTip(tr("手机跟随光标：在手机屏幕显示与电脑鼠标位置对应的圆环"));
+    ui->phoneCursorBtn->setToolTip(tr("手机跟随光标：在手机屏幕显示与电脑鼠标位置对应的鼠标箭头（目标 60 Hz）"));
     connect(ui->phoneCursorBtn, &QPushButton::toggled, this, [this](bool enabled) {
         if (m_view) m_view->setPhoneCursorEnabled(enabled);
     });
@@ -56,7 +56,7 @@ void ToolForm::setSerial(const QString &serial)
     const bool cursorSupported = m_view && m_view->phoneCursorSupported();
     ui->phoneCursorBtn->setEnabled(cursorSupported);
     ui->phoneCursorBtn->setToolTip(cursorSupported
-        ? tr("手机跟随光标：在手机屏幕显示与电脑鼠标位置对应的圆环")
+        ? tr("手机跟随光标：在手机屏幕显示与电脑鼠标位置对应的鼠标箭头（目标 60 Hz）")
         : tr("手机光标需要主屏幕完整投屏，且采集方向设为自动；支持仅旋转投屏画面。"));
     if (m_rotationMenu) return; // Bind to the original live device, not a later replacement.
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);

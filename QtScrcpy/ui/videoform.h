@@ -116,7 +116,6 @@ private:
     ToolDock *m_toolDock = nullptr;
     SystemPanelAction *m_systemPanels = nullptr;
     PhoneCursor *m_phoneCursor = nullptr;
-    QTimer m_phoneCursorTimer;
     QPointer<QWidget> m_loadingWidget;
     QPointer<QYUVOpenGLWidget> m_videoWidget;
 

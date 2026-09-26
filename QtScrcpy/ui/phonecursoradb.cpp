@@ -23,8 +23,15 @@ AdbPhoneCursor::AdbPhoneCursor(QObject *parent) : PhoneCursorTransport(parent) {
             const int end = m_output.indexOf('\n');
             const auto line = m_output.left(end).trimmed(); m_output.remove(0, end + 1);
             // The helper unlinks its unique uploaded file before this handshake.
-            if (line == "READY 1") { m_remote.clear(); m_timeout.stop(); emit ready(); }
-            else if (line == "OK") emit acknowledged();
+            if (line == "READY 2") { m_remote.clear(); m_timeout.stop(); emit ready(); }
+            else if (line.startsWith("READY ")) { fail(tr("手机光标组件版本不匹配，请使用完整运行包。")); return; }
+            else if (line.startsWith("OK ")) {
+                const auto fields = line.split(' ');
+                bool valid = false;
+                const auto sequence = fields.value(1).toULongLong(&valid);
+                if (!valid || sequence == 0) { fail(tr("手机光标确认序号异常。")); return; }
+                emit acknowledged(sequence);
+            }
             else if (line.startsWith("ERROR")) { fail(tr("手机系统不支持光标显示层：") + QString::fromUtf8(line)); return; }
         }
     });
