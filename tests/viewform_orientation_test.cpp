@@ -9,6 +9,7 @@
 #include <QPushButton>
 #include <QWheelEvent>
 #include <QPointer>
+#include <QLabel>
 #include "../QtScrcpy/ui/toolform.h"
 #include "../QtScrcpy/ui/tooldock.h"
 #include <cstdio>
@@ -98,6 +99,62 @@ void dockLifetime() {
     QPointer<QScrollArea> dock=v->findChild<QScrollArea*>("integratedToolDock");require(tools&&dock,"owned tools created");
     delete v;require(!tools&&!dock,"closing video destroys all toolbar widgets");
 }
+class WheelVideoForm : public VideoForm {
+public:
+    WheelVideoForm():VideoForm(false,false,true){}
+    int phoneWheels=0;
+protected:
+    void wheelEvent(QWheelEvent *event) override { ++phoneWheels; VideoForm::wheelEvent(event); }
+};
+void sendWheel(QWidget *target, int angle, int pixels=0) {
+    const QPoint point=target->rect().center();
+    QWheelEvent event(QPointF(point),QPointF(target->mapToGlobal(point)),QPoint(0,pixels),QPoint(0,angle),
+                      Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
+    QApplication::sendEvent(target,&event);
+    require(event.isAccepted(),"sidebar wheel must be consumed");
+}
+void dockWheel(const QString &area) {
+    WheelVideoForm v;setup(v);v.resize(650,300);wait();
+    auto *dock=v.findChild<QScrollArea*>("integratedToolDock");auto *tools=v.findChild<ToolForm*>();
+    auto *bar=dock->verticalScrollBar();require(bar->maximum()>120,"sidebar needs overflow for regression");
+    auto *button=tools->findChild<QPushButton*>("fullScreenBtn");
+    QWidget *target=area=="button"||area=="disabled"?static_cast<QWidget*>(button):area=="blank"?static_cast<QWidget*>(tools):dock->viewport();
+    if(area=="disabled")button->setEnabled(false);
+    int clicks=0;QObject::connect(button,&QPushButton::clicked,&v,[&]{++clicks;});
+    auto *focus=QApplication::focusWidget();
+    bar->setValue(0);sendWheel(target,-120);require(bar->value()>0,"wheel over sidebar content must move scroll position");
+    const int down=bar->value();sendWheel(target,120);require(bar->value()<down,"reverse wheel scrolls up");
+    bar->setValue(0);sendWheel(target,0,-17);require(bar->value()==17,"pixel scrolling uses trackpad distance once");
+    bar->setValue(0);sendWheel(target,120);require(bar->value()==0,"top boundary clamps");
+    bar->setValue(bar->maximum());sendWheel(target,-120);require(bar->value()==bar->maximum(),"bottom boundary clamps");
+    require(v.phoneWheels==0,"sidebar scrolling must never reach phone wheel handler");
+    require(clicks==0&&!v.isFullScreen(),"scroll must not click toolbar actions");
+    require(QApplication::focusWidget()==focus,"scroll must not steal keyboard focus");
+}
+void dockWheelChild() {
+    WheelVideoForm v;setup(v);v.resize(650,300);wait();
+    auto *dock=v.findChild<QScrollArea*>("integratedToolDock");auto *tools=v.findChild<ToolForm*>();
+    auto *child=new QLabel("test",tools->findChild<QPushButton*>("fullScreenBtn"));
+    child->resize(20,15);child->show();wait();
+    auto *bar=dock->verticalScrollBar();bar->setValue(0);sendWheel(child,-120);
+    require(bar->value()==60&&v.phoneWheels==0,"new nested child scrolls exactly once without leaking");
+    class Popup : public QWidget {
+    public:
+        explicit Popup(QWidget *parent):QWidget(parent,Qt::Popup){}
+        int wheels=0;
+        void wheelEvent(QWheelEvent *e) override { ++wheels;e->accept(); }
+    } popup(tools);
+    const int before=bar->value();sendWheel(&popup,-120);
+    require(popup.wheels==1&&bar->value()==before,"owned popup menus keep their own wheel input");
+}
+void dockWheelNoOverflow() {
+    WheelVideoForm v;setup(v);auto *tools=v.findChild<ToolForm*>();
+    auto *dock=v.findChild<QScrollArea*>("integratedToolDock");
+    v.resize(650,tools->minimumSizeHint().height()+160);wait();
+    require(dock->verticalScrollBar()->maximum()==0,"fixture has no vertical overflow");
+    sendWheel(tools->findChild<QPushButton*>("fullScreenBtn"),-120);
+    require(dock->verticalScrollBar()->value()==0&&v.phoneWheels==0,"no-overflow wheel stays inside toolbar");
+}
 void render() {
     VideoForm v(false,false,false);v.show();auto *s=ViewOrientationTestAccess::surface(v);s->show();wait(120);
     require(s->isValid(),"no real OpenGL context");v.updateShowSize(QSize(32,64));ViewOrientationTestAccess::turn(v,1);v.setGeometry(100,100,480,240);wait();const QRect r=v.geometry();
@@ -123,7 +180,10 @@ void render() {
 int main(int argc,char **argv) {
     QCoreApplication::setAttribute(Qt::AA_UseSoftwareOpenGL);QApplication app(argc,argv);app.setQuitOnLastWindowClosed(false);
     const struct {const char *name;void(*run)();} cases[]={{"sequence",sequence},{"skinned",skinned},{"frameless",frameless},{"preserve_selection",preserveSelection},{"bounds",bounds},{"fullscreen",fullscreen},{"maximized",maximized},{"follow",follow},{"render",render},
-        {"docked",docked},{"dock_scroll",dockScroll},{"dock_fullscreen",dockFullscreen},{"dock_hidden",dockHidden},{"dock_skin",dockSkin},{"dock_lifetime",dockLifetime}};
+        {"docked",docked},{"dock_scroll",dockScroll},{"dock_fullscreen",dockFullscreen},{"dock_hidden",dockHidden},{"dock_skin",dockSkin},{"dock_lifetime",dockLifetime},
+        {"wheel_button",[]{dockWheel("button");}},{"wheel_blank",[]{dockWheel("blank");}},
+        {"wheel_disabled",[]{dockWheel("disabled");}},{"wheel_viewport",[]{dockWheel("viewport");}},
+        {"wheel_child",dockWheelChild},{"wheel_no_overflow",dockWheelNoOverflow}};
     for(const auto &test:cases)if(argc==2 && QString::fromUtf8(argv[1])==test.name){try{test.run();std::printf("PASS VideoForm %s\n",test.name);return 0;}catch(const std::exception &e){std::fprintf(stderr,"FAIL %s: %s\n",test.name,e.what());return 1;}}
     return 2;
 }
