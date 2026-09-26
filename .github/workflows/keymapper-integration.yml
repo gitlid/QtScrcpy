@@ -28,6 +28,10 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
       - uses: jurplel/install-qt-action@v4.1.1
         with:
           version: '5.15.2'

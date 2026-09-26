@@ -16,6 +16,8 @@ Copy-Item 'docs/release-0.4.4.zh-CN.md' (Join-Path $package 'README-0.4.4.zh-CN.
 Copy-Item 'docs/release-0.4.3.zh-CN.md' (Join-Path $package 'README-0.4.3.zh-CN.md')
 Copy-Item 'docs/release-0.4.6.zh-CN.md' (Join-Path $package 'README-0.4.6.zh-CN.md')
 Copy-Item 'docs/release-0.4.7.zh-CN.md' (Join-Path $package 'README-0.4.7.zh-CN.md')
+Copy-Item 'docs/release-0.4.8.zh-CN.md' (Join-Path $package 'README-0.4.8.zh-CN.md')
+if(!(Test-Path (Join-Path $package 'qtscrcpy-cursor.jar'))){throw 'Missing phone cursor helper'}
 Copy-Item 'docs/device-rotation.zh-CN.md' (Join-Path $package 'README-Rotation.zh-CN.md')
 Get-ChildItem $package -Include '*.lib','*.pdb','*.exp' -Recurse | Remove-Item
 windeployqt --release (Join-Path $package 'QtScrcpy.exe')
@@ -73,7 +75,7 @@ try {
   Remove-Item $testExe -ErrorAction SilentlyContinue
 }
 if(Get-ChildItem $package -Recurse -File | Where-Object {$_.Extension -match '^\.(ttf|otf|woff|woff2|ttc)$'}){throw 'Unexpected standalone font file in package'}
-@{toolbarWheelRouting=$true;integratedToolbar=$true;splitSystemPanels=$true;version=$version;mainCommit=$mainSha;coreCommit=$coreSha;editorCommit=$editorSha;runId=$env:GITHUB_RUN_ID;newFeaturesDeviceTested=$false;maximumPlaybackSpeed=8;audioChanged=$false;embeddedOfflineEditor=$true;portableEditorVerified=$true;stableViewOrientation=$true;preserveViewWindowGeometry=$true;manualRotationKeepsAxis=$true;inlineAppClose=$true;taskParserDiagnostics=$true;nativeTabScrollButtons=$false;viewRotation=$true;recentTaskTabs=$true;closeRecentApplications=$true;deviceRotationMenu=$true;rotationBackupRestore=$true;applicationTabs=$true;applicationProfiles=$true;macroForegroundRecovery=$true} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
+@{phoneCursor=$true;phoneCursorProtocol=1;toolbarWheelRouting=$true;integratedToolbar=$true;splitSystemPanels=$true;version=$version;mainCommit=$mainSha;coreCommit=$coreSha;editorCommit=$editorSha;runId=$env:GITHUB_RUN_ID;newFeaturesDeviceTested=$false;maximumPlaybackSpeed=8;audioChanged=$false;embeddedOfflineEditor=$true;portableEditorVerified=$true;stableViewOrientation=$true;preserveViewWindowGeometry=$true;manualRotationKeepsAxis=$true;inlineAppClose=$true;taskParserDiagnostics=$true;nativeTabScrollButtons=$false;viewRotation=$true;recentTaskTabs=$true;closeRecentApplications=$true;deviceRotationMenu=$true;rotationBackupRestore=$true;applicationTabs=$true;applicationProfiles=$true;macroForegroundRecovery=$true} | ConvertTo-Json | Set-Content (Join-Path $package 'build-info.json') -Encoding utf8
 $zip=Join-Path $PWD "dist/$name.zip"
 Compress-Archive $package $zip
 $hash=(Get-FileHash $zip -Algorithm SHA256).Hash

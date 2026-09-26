@@ -62,6 +62,8 @@ void docked() {
     for(QWidget *w:QApplication::topLevelWidgets())require(w!=tools&&w!=dock,"no detached tool window");
     require(tools->findChild<QPushButton*>("expandNotifyBtn")->toolTip().contains(QString::fromUtf8("左上")),"notification tooltip");
     require(tools->findChild<QPushButton*>("expandSettingsBtn")->toolTip().contains(QString::fromUtf8("右上")),"settings tooltip");
+    auto *cursor=tools->findChild<QPushButton*>("phoneCursorBtn");
+    require(cursor&&cursor->isCheckable()&&!cursor->isChecked()&&!cursor->isEnabled(),"phone cursor defaults off without a compatible connected device");
     for(auto *b:tools->findChildren<QPushButton*>())require(b->focusPolicy()==Qt::NoFocus,"toolbar must not steal phone keyboard focus");
     if(!qEnvironmentVariable("QSC_DOCK_SCREENSHOT").isEmpty())v.grab().save(qEnvironmentVariable("QSC_DOCK_SCREENSHOT"));
 }
@@ -150,7 +152,11 @@ void dockWheelChild() {
 void dockWheelNoOverflow() {
     WheelVideoForm v;setup(v);auto *tools=v.findChild<ToolForm*>();
     auto *dock=v.findChild<QScrollArea*>("integratedToolDock");
-    v.resize(650,tools->minimumSizeHint().height()+160);wait();
+    // Keep the no-overflow precondition independent of desktop height and of
+    // how many tools are shipped. Window managers clamp oversized test windows.
+    for(auto *button:tools->findChildren<QPushButton*>())
+        if(button->objectName()!="fullScreenBtn")button->hide();
+    tools->layout()->activate();v.resize(650,300);wait();
     require(dock->verticalScrollBar()->maximum()==0,"fixture has no vertical overflow");
     sendWheel(tools->findChild<QPushButton*>("fullScreenBtn"),-120);
     require(dock->verticalScrollBar()->value()==0&&v.phoneWheels==0,"no-overflow wheel stays inside toolbar");

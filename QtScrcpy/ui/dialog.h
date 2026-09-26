@@ -8,6 +8,7 @@
 #include <QSystemTrayIcon>
 #include <QListWidget>
 #include <QTimer>
+#include <QMap>
 
 
 #include "adbprocess.h"
@@ -131,6 +132,7 @@ private:
     quint32 m_prevBitRate = 2000000;
     int m_prevMaxSizeIndex = 0;
     QPointer<PresetConfigDialog> m_presetDialog;
+    QMap<QString, bool> m_phoneCursorCompatible;
 };
 
 #endif // DIALOG_H

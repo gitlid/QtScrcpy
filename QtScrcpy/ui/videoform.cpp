@@ -24,6 +24,8 @@
 #include "toolform.h"
 #include "tooldock.h"
 #include "systempanelaction.h"
+#include "phonecursor.h"
+#include <QApplication>
 #include "mousetap/mousetap.h"
 #include "ui_videoform.h"
 #include "videoform.h"
@@ -75,6 +77,7 @@ VideoForm::VideoForm(bool framelessWindow, bool skin, bool showToolbar, int deco
 
 VideoForm::~VideoForm()
 {
+    if (m_phoneCursor) m_phoneCursor->setEnabled(false);
     if (m_appSession) m_appSession->shutdown();
     grabCursor(false);
     delete ui;
@@ -249,7 +252,7 @@ void VideoForm::updateRender(int width, int height, uint8_t* dataY, uint8_t* dat
     m_videoWidget->updateTextures(dataY, dataU, dataV, linesizeY, linesizeU, linesizeV);
 }
 
-void VideoForm::setSerial(const QString &serial)
+void VideoForm::setSerial(const QString &serial, bool phoneCursorSupported)
 {
     m_serial = serial;
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
@@ -268,6 +271,23 @@ void VideoForm::setSerial(const QString &serial)
         resize(width(), height() + m_appBar->height());
         m_appSession->start();
     }
+    if (device && phoneCursorSupported && !m_phoneCursor) {
+        m_phoneCursor = new PhoneCursor(serial, this);
+        m_phoneCursorTimer.setInterval(33);
+        connect(&m_phoneCursorTimer, &QTimer::timeout, this, &VideoForm::updatePhoneCursor);
+        connect(m_phoneCursor, &PhoneCursor::enabledChanged, this, [this](bool enabled) {
+            if (enabled) m_phoneCursorTimer.start(); else m_phoneCursorTimer.stop();
+            emit phoneCursorEnabledChanged(enabled);
+        });
+        connect(m_phoneCursor, &PhoneCursor::failure, this, [this](const QString &message) {
+            QMessageBox::information(this, tr("手机跟随光标"), message);
+        });
+        connect(device, &qsc::IDevice::deviceDisconnected, this, [this] { setPhoneCursorEnabled(false); });
+        connect(device, &QObject::destroyed, this, [this] { setPhoneCursorEnabled(false); });
+        connect(device, &qsc::IDevice::actionMacroStateChanged, this, [this](bool, bool playing, int) {
+            if (playing) m_phoneCursor->hide();
+        });
+    }
     if (m_toolForm) m_toolForm->setSerial(m_serial);
     if (device && !m_systemPanels && !device->isCameraMode()) {
         m_systemPanels = new SystemPanelAction(device, this);
@@ -278,6 +298,26 @@ void VideoForm::setSerial(const QString &serial)
             QMessageBox::information(this, tr("系统面板"), message);
         });
     }
+}
+
+void VideoForm::setPhoneCursorEnabled(bool enabled)
+{
+    if (m_phoneCursor) m_phoneCursor->setEnabled(enabled);
+}
+
+void VideoForm::updatePhoneCursor()
+{
+    if (!m_phoneCursor || !m_phoneCursor->enabled()) return;
+    auto *vw = videoWidget();
+    auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+    const auto global = QCursor::pos();
+    auto *under = QApplication::widgetAt(global);
+    const bool onVideo = vw && under && (under == vw || vw->isAncestorOf(under));
+    const bool visible = device && vw && vw->isVisible() && isActiveWindow() && !isMinimized()
+        && !QApplication::activePopupWidget() && !QApplication::activeModalWidget()
+        && !m_mouseLookCursor.active() && !device->isActionPlaying() && onVideo;
+    m_phoneCursor->update(vw ? vw->mapFromGlobal(global) : QPoint(), vw ? vw->size() : QSize(),
+                         m_viewRotation, m_frameSize, visible);
 }
 
 void VideoForm::expandSystemPanel(bool settings)
@@ -778,6 +818,7 @@ void VideoForm::updateFPS(quint32 fps)
 
 void VideoForm::grabCursor(bool grab)
 {
+    if (grab && m_phoneCursor) m_phoneCursor->hide();
     if (grab && (!isVisible() || !isActiveWindow())) { return; }
     const bool owned = m_mouseLookCursor.active();
     m_mouseLookCursor.set(videoWidget(), grab);
@@ -1013,6 +1054,8 @@ void VideoForm::wheelEvent(QWheelEvent *event)
 
 bool VideoForm::event(QEvent *event)
 {
+    if (m_phoneCursor && (event->type() == QEvent::Leave || event->type() == QEvent::Hide
+        || event->type() == QEvent::WindowDeactivate || event->type() == QEvent::WindowStateChange)) m_phoneCursor->hide();
     auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
     if (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::FocusOut) {
         const bool captured = m_mouseLookCursor.active();
@@ -1134,6 +1177,7 @@ void VideoForm::resizeEvent(QResizeEvent *event)
 
 void VideoForm::closeEvent(QCloseEvent *event)
 {
+    setPhoneCursorEnabled(false);
     if (m_systemPanels) m_systemPanels->cancel();
     if (m_appSession) m_appSession->shutdown();
     grabCursor(false);
