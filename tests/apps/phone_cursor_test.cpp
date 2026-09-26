@@ -18,8 +18,12 @@ public:
     bool autoReady = true, autoAck = true;
     void open(const QString &serial) override { require(serial == "test-device", "wrong device"); ++opens; if (autoReady) emit ready(); }
     void close() override { ++closes; }
-    void send(const QByteArray &line) override { lines.append(line); if (autoAck) emit acknowledged(); }
+    void send(const QByteArray &line) override { lines.append(line); if (autoAck) emit acknowledged(line.split(' ').value(1).trimmed().toULongLong()); }
 };
+QByteArray payload(const QByteArray &line) {
+    const int end = line.indexOf(' ', 2);
+    return end < 0 ? line.left(1) + '\n' : line.left(1) + line.mid(end);
+}
 void geometry() {
     const QSize view(101, 201), frame(720, 1560);
     require(PhoneCursor::position(QPoint(50, 100), view, 0, frame) == "P 500000 500000 720 1560\n", "normalized center");
@@ -50,23 +54,29 @@ void supports() {
 }
 void coalescing() {
     Transport t; t.autoAck = false; PhoneCursor c("test-device", nullptr, &t); c.setEnabled(true);
-    for (int n = 0; n <= 100; ++n) c.update(QPoint(n, 50), QSize(101, 101), 0, QSize(1080, 1080), true);
-    wait(80); require(t.lines.size() == 1, "must not queue moves behind unacknowledged packet");
-    emit t.acknowledged(); until([&] { return t.lines.size() == 2; });
-    require(t.lines.size() == 2 && t.lines.last() == "P 1000000 500000 1080 1080\n", "only newest point sent");
+    int n = 0;
+    const auto sampling = QObject::connect(&c, &PhoneCursor::sampleRequested, &c, [&] {
+        c.update(QPoint(qMin(++n, 100), 50), QSize(101, 101), 0, QSize(1080, 1080), true);
+    });
+    wait(150); require(t.lines.size() == 3, "at most three unacknowledged updates");
+    n = 99; emit t.acknowledged(3); until([&] { return t.lines.size() == 4; });
+    require(t.lines.size() == 4 && payload(t.lines.last()) == "P 1000000 500000 1080 1080\n", "cumulative ack releases pipeline and sends newest point");
+    emit t.acknowledged(2); emit t.acknowledged(99);
+    QObject::disconnect(sampling); c.hide(); wait(70);
+    require(t.lines.size() == 5 && payload(t.lines.last()) == "H\n", "stale and future acknowledgements cannot corrupt pipeline");
 }
 void visibility() {
     Transport t; PhoneCursor c("test-device", nullptr, &t); c.setEnabled(true);
     c.update(QPoint(50, 50), QSize(101, 101), 1, QSize(1080, 1080), true); until([&] { return t.lines.last().startsWith("P "); });
     require(t.lines.last().startsWith("P "), "visible point");
-    c.update(QPoint(50, 50), QSize(101, 101), 1, QSize(1080, 1080), false); until([&] { return t.lines.last() == "H\n"; });
-    require(t.lines.last() == "H\n", "hidden point");
+    c.update(QPoint(50, 50), QSize(101, 101), 1, QSize(1080, 1080), false); until([&] { return payload(t.lines.last()) == "H\n"; });
+    require(payload(t.lines.last()) == "H\n", "hidden point");
     c.update(QPoint(50, 50), QSize(101, 101), 1, QSize(1080, 1080), true); until([&] { return t.lines.last().startsWith("P "); }); c.hide();
-    require(t.lines.last() == "H\n", "hide immediate after acknowledgement");
+    require(payload(t.lines.last()) == "H\n", "hide immediate after acknowledgement");
 }
 void heartbeat() {
     Transport t; PhoneCursor c("test-device", nullptr, &t); c.setEnabled(true); wait(310);
-    require(t.lines.size() == 2 && t.lines.last() == "H\n", "bounded heartbeat when stationary");
+    require(t.lines.size() == 2 && payload(t.lines.last()) == "H\n", "bounded heartbeat when stationary");
     c.setEnabled(false); const int before = t.lines.size(); wait(310);
     require(t.lines.size() == before && t.closes == 1, "off stops heartbeat and transport");
 }
@@ -86,7 +96,7 @@ void failure() {
     QObject::connect(&c, &PhoneCursor::failure, &c, [&](const QString &) { ++errors; });
     c.setEnabled(true); emit t.failure("unsupported"); emit t.failure("late");
     require(!c.enabled() && t.closes == 1 && errors == 1, "failure clears toggle once");
-    c.setEnabled(true); require(c.enabled() && t.opens == 2 && t.lines.last() == "H\n", "retry starts hidden");
+    c.setEnabled(true); require(c.enabled() && t.opens == 2 && payload(t.lines.last()) == "H\n", "retry starts hidden");
 }
 void lifetime() {
     Transport t; { PhoneCursor c("test-device", nullptr, &t); c.setEnabled(true); }

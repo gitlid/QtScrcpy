@@ -273,10 +273,8 @@ void VideoForm::setSerial(const QString &serial, bool phoneCursorSupported)
     }
     if (device && phoneCursorSupported && !m_phoneCursor) {
         m_phoneCursor = new PhoneCursor(serial, this);
-        m_phoneCursorTimer.setInterval(33);
-        connect(&m_phoneCursorTimer, &QTimer::timeout, this, &VideoForm::updatePhoneCursor);
+        connect(m_phoneCursor, &PhoneCursor::sampleRequested, this, &VideoForm::updatePhoneCursor);
         connect(m_phoneCursor, &PhoneCursor::enabledChanged, this, [this](bool enabled) {
-            if (enabled) m_phoneCursorTimer.start(); else m_phoneCursorTimer.stop();
             emit phoneCursorEnabledChanged(enabled);
         });
         connect(m_phoneCursor, &PhoneCursor::failure, this, [this](const QString &message) {

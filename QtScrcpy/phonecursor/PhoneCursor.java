@@ -6,6 +6,7 @@ import java.lang.reflect.Constructor;
 /** A display-only surface, owned by this ADB session. Never injects input. */
 public final class PhoneCursor {
     private static volatile String pending;
+    private static long pendingReceived;
     private static volatile boolean closed;
     private static volatile long lastInput = System.nanoTime();
     private static Object call(Object target, String name, Class<?>[] types, Object... args) throws Exception {
@@ -19,7 +20,7 @@ public final class PhoneCursor {
         control = Class.forName("android.view.SurfaceControl");
         Object builder = Class.forName("android.view.SurfaceControl$Builder").getDeclaredConstructor().newInstance();
         call(builder, "setName", new Class<?>[]{String.class}, "QtScrcpy phone cursor");
-        call(builder, "setBufferSize", new Class<?>[]{int.class, int.class}, 48, 48);
+        call(builder, "setBufferSize", new Class<?>[]{int.class, int.class}, 64, 72);
         call(builder, "setFormat", new Class<?>[]{int.class}, -3); // TRANSLUCENT
         call(builder, "setHidden", new Class<?>[]{boolean.class}, true);
         layer = call(builder, "build", NONE);
@@ -36,15 +37,23 @@ public final class PhoneCursor {
             Class<?> paintClass = Class.forName("android.graphics.Paint");
             Object paint = paintClass.getDeclaredConstructor().newInstance();
             call(paint, "setAntiAlias", new Class<?>[]{boolean.class}, true);
-            // A hollow ring leaves the pixel under the mouse hotspot visible.
-            call(paint, "setColor", new Class<?>[]{int.class}, 0xcc111111);
-            call(canvas, "drawCircle", new Class<?>[]{float.class, float.class, float.class, paintClass}, 24f, 24f, 19f, paint);
-            call(paint, "setColor", new Class<?>[]{int.class}, 0xff00e5ff);
-            call(canvas, "drawCircle", new Class<?>[]{float.class, float.class, float.class, paintClass}, 24f, 24f, 16f, paint);
-            Class<?> xfer = Class.forName("android.graphics.Xfermode");
-            Object clear = Class.forName("android.graphics.PorterDuffXfermode").getConstructor(mode).newInstance(mode.getField("CLEAR").get(null));
-            call(paint, "setXfermode", new Class<?>[]{xfer}, clear);
-            call(canvas, "drawCircle", new Class<?>[]{float.class, float.class, float.class, paintClass}, 24f, 24f, 10f, paint);
+            // The arrow tip (6,5), rather than its bounding-box centre, is the hotspot.
+            Class<?> pathClass = Class.forName("android.graphics.Path");
+            Object path = pathClass.getDeclaredConstructor().newInstance();
+            call(path, "moveTo", new Class<?>[]{float.class, float.class}, 6f, 5f);
+            float[][] points = {{6,52},{18,41},{28,63},{38,58},{28,36},{48,36}};
+            for (float[] point : points) call(path, "lineTo", new Class<?>[]{float.class, float.class}, point[0], point[1]);
+            call(path, "close", NONE);
+            Class<?> style = Class.forName("android.graphics.Paint$Style");
+            Class<?> join = Class.forName("android.graphics.Paint$Join");
+            call(paint, "setStrokeJoin", new Class<?>[]{join}, join.getField("ROUND").get(null));
+            call(paint, "setStrokeWidth", new Class<?>[]{float.class}, 5f);
+            call(paint, "setStyle", new Class<?>[]{style}, style.getField("FILL_AND_STROKE").get(null));
+            call(paint, "setColor", new Class<?>[]{int.class}, 0xff111111);
+            call(canvas, "drawPath", new Class<?>[]{pathClass, paintClass}, path, paint);
+            call(paint, "setStyle", new Class<?>[]{style}, style.getField("FILL").get(null));
+            call(paint, "setColor", new Class<?>[]{int.class}, 0xffffffff);
+            call(canvas, "drawPath", new Class<?>[]{pathClass, paintClass}, path, paint);
         } finally {
             call(surface, "unlockCanvasAndPost", new Class<?>[]{Class.forName("android.graphics.Canvas")}, canvas);
         }
@@ -58,9 +67,9 @@ public final class PhoneCursor {
 
     private void position(String line) throws Exception {
         String[] p = line.split(" ");
-        if (p.length != 5 || !p[0].equals("P")) throw new IllegalArgumentException("invalid command");
-        int x = Integer.parseInt(p[1]), y = Integer.parseInt(p[2]);
-        int fw = Integer.parseInt(p[3]), fh = Integer.parseInt(p[4]);
+        if (p.length != 6 || !p[0].equals("P")) throw new IllegalArgumentException("invalid command");
+        int x = Integer.parseInt(p[2]), y = Integer.parseInt(p[3]);
+        int fw = Integer.parseInt(p[4]), fh = Integer.parseInt(p[5]);
         if (x < 0 || x > 1000000 || y < 0 || y > 1000000 || fw < 2 || fh < 2 || fw > 32768 || fh > 32768)
             throw new IllegalArgumentException("invalid coordinates");
         Object manager = Class.forName("android.hardware.display.DisplayManagerGlobal").getMethod("getInstance").invoke(null);
@@ -74,7 +83,7 @@ public final class PhoneCursor {
         if (width < 2 || height < 2 || error > Math.min(0.03, 8.0 / Math.min(fw, fh))) { hide(); return; }
         call(tx, "setLayerStack", new Class<?>[]{control, int.class}, layer, stack);
         call(tx, "setPosition", new Class<?>[]{control, float.class, float.class}, layer,
-             (float) (x / 1000000.0 * (width - 1) - 24), (float) (y / 1000000.0 * (height - 1) - 24));
+             (float) (x / 1000000.0 * (width - 1) - 6), (float) (y / 1000000.0 * (height - 1) - 5));
         call(tx, "show", new Class<?>[]{control}, layer);
         call(tx, "apply", NONE);
     }
@@ -106,7 +115,10 @@ public final class PhoneCursor {
                         if (c == '\n') {
                             String command = line.toString(); line.setLength(0);
                             if (command.equals("Q")) break;
-                            synchronized (PhoneCursor.class) { pending = command; lastInput = System.nanoTime(); }
+                            synchronized (PhoneCursor.class) {
+                                pending = command; pendingReceived = lastInput = System.nanoTime();
+                                PhoneCursor.class.notifyAll();
+                            }
                         } else {
                             if (c < 32 || c > 126 || line.length() >= 100) break;
                             line.append((char)c);
@@ -114,24 +126,35 @@ public final class PhoneCursor {
                     }
                 } catch (Exception ignored) { }
                 closed = true;
+                synchronized (PhoneCursor.class) { PhoneCursor.class.notifyAll(); }
             }, "cursor-input");
             reader.setDaemon(true); reader.start();
-            System.out.println("READY 1"); System.out.flush();
+            System.out.println("READY 2"); System.out.flush();
             boolean hiddenForTimeout = false;
+            long sequence = 0;
             while (!closed) {
                 String command;
-                synchronized (PhoneCursor.class) { command = pending; pending = null; }
+                long received;
+                synchronized (PhoneCursor.class) {
+                    if (pending == null && !closed) PhoneCursor.class.wait(100);
+                    command = pending; received = pendingReceived; pending = null;
+                }
                 long age = (System.nanoTime() - lastInput) / 1000000;
                 if (age > 5000) break;
                 if (age > 1200) {
                     if (!hiddenForTimeout) cursor.hide();
                     hiddenForTimeout = true;
                 } else if (command != null) {
-                    if (command.equals("H")) cursor.hide(); else cursor.position(command);
+                    String[] fields = command.split(" ");
+                    if (fields.length < 2) throw new IllegalArgumentException("missing sequence");
+                    long current = Long.parseLong(fields[1]);
+                    if (current <= sequence) throw new IllegalArgumentException("stale sequence");
+                    sequence = current;
+                    if (fields.length == 2 && fields[0].equals("H")) cursor.hide(); else cursor.position(command);
                     hiddenForTimeout = false;
-                    System.out.println("OK"); System.out.flush();
+                    // Monotonic receive/apply times also allow non-photometric latency diagnostics.
+                    System.out.println("OK " + current + " " + received + " " + System.nanoTime()); System.out.flush();
                 }
-                Thread.sleep(8);
             }
         } catch (Throwable error) {
             System.out.println("ERROR " + error.getClass().getSimpleName());
