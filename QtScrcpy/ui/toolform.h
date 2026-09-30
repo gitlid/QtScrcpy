@@ -15,6 +15,8 @@ class Device;
 class ActionMacroDialog;
 class DeviceRotationMenu;
 class VideoForm;
+class InputMethodDialog;
+class QPushButton;
 class ToolForm : public QWidget
 {
     Q_OBJECT
@@ -63,6 +65,8 @@ private:
     bool m_isHost = false;
     QPointer<ActionMacroDialog> m_actionMacroDialog;
     QPointer<DeviceRotationMenu> m_rotationMenu;
+    QPointer<InputMethodDialog> m_inputMethodDialog;
+    QPushButton *m_inputMethodButton = nullptr;
 };
 
 #endif // TOOLFORM_H

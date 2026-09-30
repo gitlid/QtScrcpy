@@ -12,6 +12,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         ${APP_ROOT}/ui/phonecursor.cpp ${APP_ROOT}/ui/phonecursor.h
         ${APP_ROOT}/ui/phonecursoradb.cpp ${APP_ROOT}/ui/phonecursoradb.h
         ${APP_ROOT}/ui/appsession.cpp ${APP_ROOT}/ui/appsession.h ${APP_ROOT}/ui/appbar.cpp ${APP_ROOT}/ui/appbar.h
+        ${APP_ROOT}/ui/inputmethoddialog.cpp ${APP_ROOT}/ui/inputmethoddialog.h
         ${APP_ROOT}/ui/apprecenttasks.cpp ${APP_ROOT}/ui/apprecenttasks.h
         ${APP_ROOT}/ui/systempanelaction.cpp ${APP_ROOT}/ui/systempanelaction.h
         ${APP_ROOT}/ui/devicerotation.cpp ${APP_ROOT}/ui/devicerotation.h
@@ -150,4 +151,20 @@ endif()
 foreach(case_name IN ITEMS normal vivo notification retained cancel stale failure busy disconnect)
     add_test(NAME panelui_${case_name} COMMAND systempanel_action_tests ${case_name})
     set_tests_properties(panelui_${case_name} PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endforeach()
+
+add_executable(inputmethod_ui_tests inputmethod_ui_test.cpp)
+set_target_properties(inputmethod_ui_tests PROPERTIES AUTOMOC ON CXX_STANDARD 11)
+target_link_libraries(inputmethod_ui_tests PRIVATE qsc_applications)
+if(MSVC)
+    target_compile_options(inputmethod_ui_tests PRIVATE /utf-8 /W3 /WX)
+endif()
+foreach(case_name IN ITEMS native preedit commit mixed failure clipboard shortcuts busy disconnect settings enter screenshot)
+    add_test(NAME imeui_${case_name} COMMAND inputmethod_ui_tests ${case_name})
+    set_tests_properties(imeui_${case_name} PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    if(WIN32)
+        # Exercise the native input context and font renderer on Windows.
+        # Qt 5's offscreen backend can omit all text from otherwise passing UI captures.
+        set_tests_properties(imeui_${case_name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=windows")
+    endif()
 endforeach()

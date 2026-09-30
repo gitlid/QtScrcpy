@@ -4,6 +4,7 @@
 #include <QShowEvent>
 
 #include "actionmacrodialog.h"
+#include "inputmethoddialog.h"
 #include "devicerotationmenu.h"
 #include <QShortcut>
 #include <QSignalBlocker>
@@ -39,6 +40,21 @@ ToolForm::ToolForm(VideoForm *view, QWidget *parent) : QWidget(parent ? parent :
         ui->phoneCursorBtn->setStyleSheet(enabled ? "color: #00e5ff" : "");
     });
 
+    m_inputMethodButton = new QPushButton(tr("输入法"), this);
+    m_inputMethodButton->setObjectName("inputMethodBtn");
+    m_inputMethodButton->setFixedSize(44, 36);
+    m_inputMethodButton->setFocusPolicy(Qt::NoFocus); m_inputMethodButton->setAutoDefault(false);
+    m_inputMethodButton->setToolTip(tr("手机中/英切换、实体键盘设置和电脑中文拼音输入"));
+    ui->verticalLayout->insertWidget(ui->verticalLayout->indexOf(ui->clipboardBtn) + 1, m_inputMethodButton);
+    connect(m_inputMethodButton, &QPushButton::clicked, this, [this] {
+        auto device = qsc::IDeviceManage::getInstance().getDevice(m_serial);
+        if (!device || device->isCameraMode()) return;
+        if (!m_inputMethodDialog) {
+            m_inputMethodDialog = new InputMethodDialog(device, m_view ? m_view->appSession() : nullptr, this);
+            m_inputMethodDialog->setAttribute(Qt::WA_DeleteOnClose);
+        }
+        m_inputMethodDialog->show(); m_inputMethodDialog->raise(); m_inputMethodDialog->activateWindow();
+    });
     updateGroupControl();
 
     initStyle();
@@ -110,6 +126,7 @@ void ToolForm::updateCameraMode()
     ui->homeBtn->setVisible(!camera);
     ui->returnBtn->setVisible(!camera);
     ui->clipboardBtn->setVisible(!camera);
+    if (m_inputMethodButton) m_inputMethodButton->setVisible(!camera);
     ui->actionMacroBtn->setVisible(!camera);
     ui->cameraTorchBtn->setVisible(camera);
     ui->cameraZoomOutBtn->setVisible(camera);

@@ -44,6 +44,8 @@ jobs:
         id: build
         shell: pwsh
         run: |
+          python -m unittest discover -s tests/buildtools -v
+          if($LASTEXITCODE -ne 0){throw 'Download retry regression failed'}
           cmake -S . -B build-keymapper -G 'Visual Studio 17 2022' -A x64 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DQSC_BUILD_ACTION_MACRO_TESTS=ON -DQSC_WITH_KEYMAPPER=ON
           if($LASTEXITCODE -ne 0){throw 'Configure failed'}
           cmake --build build-keymapper --config RelWithDebInfo --parallel 4
@@ -56,6 +58,7 @@ jobs:
         run: |
           $env:PATH="$(Join-Path $PWD 'output/x64/RelWithDebInfo');$env:PATH"
           $env:QT_QPA_PLATFORM='offscreen'
+          $env:QSC_IME_SCREENSHOT=Join-Path $PWD 'build-keymapper/input-method.png'
           $env:QSC_LOCKED_VIEW_SCREENSHOT=Join-Path $PWD 'build-keymapper/locked-view-'
           $env:QSC_APPBAR_SCREENSHOT=Join-Path $PWD 'build-keymapper/appbar'
           $env:QSC_VIEW_SCREENSHOT=Join-Path $PWD 'build-keymapper/view-rotation.png'
@@ -91,6 +94,7 @@ jobs:
             build-keymapper/results.xml
             build-keymapper/web-results.xml
             build-keymapper/keymapper-native.png
+            build-keymapper/input-method.png
             build-keymapper/rotation-menu.png
             build-keymapper/integrated-toolbar.png
             build-keymapper/view-rotation.png
