@@ -56,6 +56,7 @@ jobs:
         run: |
           $env:PATH="$(Join-Path $PWD 'output/x64/RelWithDebInfo');$env:PATH"
           $env:QT_QPA_PLATFORM='offscreen'
+          $env:QSC_IME_SCREENSHOT=Join-Path $PWD 'build-keymapper/input-method.png'
           $env:QSC_LOCKED_VIEW_SCREENSHOT=Join-Path $PWD 'build-keymapper/locked-view-'
           $env:QSC_APPBAR_SCREENSHOT=Join-Path $PWD 'build-keymapper/appbar'
           $env:QSC_VIEW_SCREENSHOT=Join-Path $PWD 'build-keymapper/view-rotation.png'
@@ -91,6 +92,7 @@ jobs:
             build-keymapper/results.xml
             build-keymapper/web-results.xml
             build-keymapper/keymapper-native.png
+            build-keymapper/input-method.png
             build-keymapper/rotation-menu.png
             build-keymapper/integrated-toolbar.png
             build-keymapper/view-rotation.png

@@ -23,6 +23,7 @@ add_library(qsc_applications STATIC QtScrcpy/ui/appsession.cpp QtScrcpy/ui/appse
     QtScrcpy/ui/phonecursor.cpp QtScrcpy/ui/phonecursor.h
     QtScrcpy/ui/phonecursoradb.cpp QtScrcpy/ui/phonecursoradb.h
     QtScrcpy/ui/appbar.cpp QtScrcpy/ui/appbar.h QtScrcpy/ui/appbinding.h
+    QtScrcpy/ui/inputmethoddialog.cpp QtScrcpy/ui/inputmethoddialog.h
     QtScrcpy/ui/systempanelaction.cpp QtScrcpy/ui/systempanelaction.h
     QtScrcpy/ui/apprecenttasks.cpp QtScrcpy/ui/apprecenttasks.h
     QtScrcpy/ui/devicerotation.cpp QtScrcpy/ui/devicerotation.h

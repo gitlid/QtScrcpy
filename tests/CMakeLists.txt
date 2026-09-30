@@ -119,3 +119,15 @@ foreach(case_name IN ITEMS notifications settings landscape replace cancel_early
     add_test(NAME panel_${case_name} COMMAND systempanel_tests ${case_name})
     set_tests_properties(panel_${case_name} PROPERTIES TIMEOUT 15)
 endforeach()
+
+add_executable(ime_tests ${CORE}/tests/ime_test.cpp)
+target_include_directories(ime_tests PRIVATE ${CORE}/src/common ${CORE}/src/device/android
+    ${CORE}/src/device/controller ${CORE}/src/device/controller/inputconvert)
+target_link_libraries(ime_tests PRIVATE QtScrcpyCore Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network)
+if(MSVC)
+    target_compile_options(ime_tests PRIVATE /utf-8 /W3 /WX)
+endif()
+foreach(case_name IN ITEMS shift ctrl_space shift_space mapped invalid unicode bounds busy camera sdk failure resume)
+    add_test(NAME ime_${case_name} COMMAND ime_tests ${case_name})
+    set_tests_properties(ime_${case_name} PROPERTIES TIMEOUT 15)
+endforeach()
